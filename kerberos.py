@@ -9,7 +9,7 @@ from selenium.webdriver.chrome.options import Options
 import json
 import time
 
-SERVERIP = '192.168.0.10'
+SERVERIP = '127.0.0.1'
 
 print("Make sure that either the radio band of interest is completely silent (no beacons or radio station broadcasting), or all kerberos antenna are disconnected from the board, in order to perform sync process correctly")
 input("Press Enter to continue...")
@@ -107,7 +107,7 @@ update = driver.find_element_by_css_selector("input[value='Update DOA']")
 update.click()
 
 """ Compass page: get the bearing info """
-driver.get("http://192.168.0.10:8081/compass.html?MIN_PWR=10&MIN_CONF=3")
+driver.get("http://" + SERVERIP + ":8081/compass.html?MIN_PWR=10&MIN_CONF=3")
 doa = driver.find_element_by_id("doa")
 
 
