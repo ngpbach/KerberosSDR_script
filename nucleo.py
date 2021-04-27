@@ -21,9 +21,8 @@ def terminate():
 
 atexit.register(terminate)
 
-
-
-_arm = False
+armed = False
+heartbeat = 0
 _sender = "pi"     # set this string to id where the script is run
 
 def _unblock():
@@ -44,31 +43,47 @@ def _serialize_json(obj):
         log.error(msg)
 
 def arm():
-    global _arm
-    if not _arm:
-        global _recv_count
+    global armed
+    if not armed:
+        global heartbeat
         cmd = {"type":"cmd","arm":True}
         packet = _serialize_json(cmd).encode()
 
         log.info("Waiting for nucleo handshake")
-        while not _arm:
+        while not armed:
             _ser.write(packet)
             get_feedback(timeout=10)
         
-        _arm = True
-        log.info("Arming success.")
+        if armed:
+            log.info("Arming success.")
+        else:
+            log.info("Arming failed")
+        
+  
+def disarm():
+    global armed
+    if armed:
+        cmd = {"type":"cmd","disarm":True}
+        packet = _serialize_json(cmd).encode()
+        while armed:
+            _ser.write(packet)
+            get_feedback(timeout=10)
+
+        if not armed:
+            log.info("Disarming success.")
+        else:
+            log.warn("Disarming failed")
 
 def send_cmd(pitch, yaw):
     """ Nucleo expect pitch value [-1000 (max reverse),1000 (max forward)] and yaw value [-1000 (max right), 1000 (max left)]"""
-    global _recv_count
-    cmd = {"type":"cmd", "pitch":pitch,"yaw":yaw}
+    cmd = {"type":"cmd", "pitch":int(pitch),"yaw":int(yaw)}
     packet = _serialize_json(cmd).encode()
     _ser.write(packet)
 
 
 def get_feedback(timeout=0.1):
-    global _arm
-    global _recv_count
+    global armed
+    global heartbeat
     _ser.timeout = timeout
     text = _ser.readline().decode()
     # log.debug("Received:", text)
@@ -77,46 +92,39 @@ def get_feedback(timeout=0.1):
     try:
         packet = json.loads(text)
         
-
         if not "type" in packet:
-            log.debug("Uknown packet type")
+            log.debug("No packet type")
 
         elif packet["type"] == "log":
             logfunction = eval("log."+ packet["level"])
-            logfunction("[%s]%s\nEcho:'%s'", packet["sender"], packet["log"], packet["echo"])
+            echo = "\nEcho:{}".format(packet["echo"]) if "echo" in packet else ""
+            logfunction("[%s]%s%s", packet["sender"], packet["log"], echo)
 
         elif packet["type"] == "ack":
-            _arm = packet["arm"]
+            armed = packet["arm"]
 
         elif packet["type"] == "data":
             return packet
 
-        if "count" in packet:
-            _rec = packet["count"]
-        
+        else:
+            log.debug("Packet format correct but unknown packet type")
 
+        heartbeat = packet["count"]
+        
     except json.JSONDecodeError:
         log.warning("Unexpected or corrupted msg\nMessage: %s", text)
-        
-def disarm():
-    global _arm
-    if _arm:
-        cmd = {"type":"cmd","disarm":True}
-        packet = _serialize_json(cmd).encode()
-        while _arm:
-            _ser.write(packet)
-            get_feedback(timeout=10)
+      
 
-        log.info("Disarming success.")
+
 
 if __name__ == "__main__":
     arm()
 
     for i in range(50):     # try running 5 secs
-        send_cmd(0,0)
+        send_cmd(100,0)
         get_feedback()
         time.sleep(0.1)
-        log.debug("_recv_count %d", _recv_count)
+        log.debug("heartbeat %d", heartbeat)
 
     disarm()
     

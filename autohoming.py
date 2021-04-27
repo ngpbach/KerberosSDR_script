@@ -3,9 +3,10 @@ import time
 import threading
 import socket
 import json
-import nucleo as target     # pixhawk or nucleo
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
+import joystick as joy
+import nucleo as target     # pixhawk or nucleo
 
 radio_bearing = 0
 
@@ -41,11 +42,36 @@ def calculate_effort():
 if __name__ == "__main__":
     beartask = threading.Thread(target=thread_get_bearing)
     beartask.start()
-    target.arm()
 
     while(1):
-        log.info("Current bearing %s:", radio_bearing)
-        pitch, yaw = calculate_effort()
-        target.send_cmd(pitch, yaw)
+        joy.joystick_update()
+        js_active = joy.axes[5] > 0     # hold down RT button to use joystick
+        if js_active:
+            arm = joy.btns[0]       # press A to arm
+            disarm = joy.btns[1]    # press B to disarm
+            yaw = int(-joy.axes[0]*1000)    # left stick left-right for yaw
+            pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
+
+            if arm:
+                if (pitch == 0 and yaw == 0):          
+                    target.arm()
+                else:
+                    log.info("Joystick Pitch and Yaw must be neutral for arming")  
+
+            if disarm:
+                target.disarm()
+
+            if target.armed:
+                target.send_cmd(pitch, yaw)
+
+            log.debug("Using joystick control\n Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, target.armed, target.heartbeat))
+
+        else:
+            pitch, yaw = calculate_effort()
+            if (target.armed):
+                target.send_cmd(pitch, yaw)
+            
+            log.debug("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {} Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, radio_bearing))
+
         target.get_feedback()
         time.sleep(0.1)

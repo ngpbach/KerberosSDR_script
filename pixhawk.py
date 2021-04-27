@@ -2,9 +2,14 @@
 import time
 import sys
 from pymavlink import mavutil
+import logging as log
+log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
 
 # Create the connection
 master = mavutil.mavlink_connection("/dev/ttyACM0", baud=115200)
+
+
+armed = False
 
 def arm():
     # Wait a heartbeat before sending commands
@@ -24,7 +29,13 @@ def arm():
 
     # https://mavlink.io/en/messages/common.html
     # Arm
-    master.arducopter_arm()
+    armed = master.arducopter_arm()
+
+    if armed:
+        log.info("Arming success.")
+    else:
+        log.info("Arming failed")
+
 
 def send_cmd(pitch, yaw):
     # https://mavlink.io/en/messages/common.html#MANUAL_CONTROL
@@ -39,16 +50,21 @@ def send_cmd(pitch, yaw):
                                     0)
 
 def get_feedback():
+    # update arm status
     pass
 
 def disarm():
-    master.arducopter_disarm()
+    armed = not master.arducopter_disarm()
+    if not armed:
+        log.info("Disarming success.")
+    else:
+        log.warn("Disarming failed")
 
 if __name__ == "__main__":
     arm()
 
     for i in range(50): # try running 5 secs
-        send_cmd(300,0)
+        send_cmd(100,0)
         get_feedback()
         time.sleep(0.1)
 
