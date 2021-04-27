@@ -36,7 +36,7 @@ def thread_get_bearing(UDP_IP = "127.0.0.1", UDP_PORT = 5005):
 
 def calculate_effort():
     yaw = 2*radio_bearing       # turning effort proportional to bearing
-    return 500, yaw
+    return 0, yaw
 
 if __name__ == "__main__":
     beartask = threading.Thread(target=thread_get_bearing)

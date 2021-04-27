@@ -7,26 +7,34 @@ import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
 
 try:
-    ser = serial.Serial("/dev/serial/by-id/usb-STMicroelectronics_STM32_STLink_066DFF313331464257022836-if02", 115200)
+    _ser = serial.Serial("/dev/serial/by-id/usb-STMicroelectronics_STM32_STLink_066DFF313331464257022836-if02", 115200)
     time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
+    _ser.reset_input_buffer()
 except serial.SerialException as msg:
     log.error("msg")
     sys.exit()
 
 def terminate():
-    ser.write(b'\n')    # write one endline char to make sure fgets won't hang on nucleo
-    ser.close()
-    log.info("Exit program")
+    _ser.write(b'\n')    # work around: write one termination char to make sure fgets won't hang on nucleo
+    _ser.close()
+    log.info("Serial closed")
 
 atexit.register(terminate)
 
 
 
-heartbeat = 0
-sender = "groundpc"     # set this string to id where the script is run
+_arm = False
+_sender = "pi"     # set this string to id where the script is run
+
+def _unblock():
+    """ 
+    A work around for Nucleo blocking fgets(). If erronous string (no termination) was sent through serial, fgets() would block the control loop.
+    Send a endline char to unblock fgets. Will implement thread for fgets in the future.
+    """
+    _ser.write(b'\n')
 
 def _serialize_json(obj):
-    obj["sender"] = sender
+    obj["sender"] = _sender
     obj["target"] = "nucleo"
     try:
         text = json.dumps(obj) + '\n' # very important to have endline char, otherwise fgets() block waiting until endline
@@ -36,66 +44,79 @@ def _serialize_json(obj):
         log.error(msg)
 
 def arm():
-    global heartbeat
-    request = {"type":"handshake","arm":True}
-    packet = {}
-    hearbeat = 0
-    ser.reset_input_buffer()
-    while heartbeat < 1:    # handshake until receive 5 acks
+    global _arm
+    if not _arm:
+        global _recv_count
+        cmd = {"type":"cmd","arm":True}
+        packet = _serialize_json(cmd).encode()
+
         log.info("Waiting for nucleo handshake")
-        ser.write(_serialize_json(request).encode())
-        get_feedback(timeout=10)
-    
-    log.info("Arming success.")
+        while not _arm:
+            _ser.write(packet)
+            get_feedback(timeout=10)
+        
+        _arm = True
+        log.info("Arming success.")
 
 def send_cmd(pitch, yaw):
     """ Nucleo expect pitch value [-1000 (max reverse),1000 (max forward)] and yaw value [-1000 (max right), 1000 (max left)]"""
-    global heartbeat
+    global _recv_count
     cmd = {"type":"cmd", "pitch":pitch,"yaw":yaw}
-    message = _serialize_json(cmd)
-    ser.write(message.encode())
+    packet = _serialize_json(cmd).encode()
+    _ser.write(packet)
+
 
 def get_feedback(timeout=0.1):
-    ser.timeout = timeout
-    global heartbeat
-    text = ser.readline()
+    global _arm
+    global _recv_count
+    _ser.timeout = timeout
+    text = _ser.readline().decode()
     # log.debug("Received:", text)
     if not text:
         return
     try:
-        packet = json.loads(text.decode())
-        if "type" in packet:
-            if  packet["type"] == "log":
-                logfunction = eval("log."+ packet["level"])
-                logfunction("[%s]%s\nEcho:'%s'", packet["sender"], packet["log"], packet["echo"])
+        packet = json.loads(text)
+        
 
-            elif packet["type"] == "ack":
-                heartbeat += 1
+        if not "type" in packet:
+            log.debug("Uknown packet type")
 
-            elif packet["type"] == "data":
-                heartbeat += 1
-                return packet
+        elif packet["type"] == "log":
+            logfunction = eval("log."+ packet["level"])
+            logfunction("[%s]%s\nEcho:'%s'", packet["sender"], packet["log"], packet["echo"])
 
-            else:
-                log.debug("Uknown packet type")
-            
+        elif packet["type"] == "ack":
+            _arm = packet["arm"]
+
+        elif packet["type"] == "data":
+            return packet
+
+        if "count" in packet:
+            _rec = packet["count"]
+        
 
     except json.JSONDecodeError:
         log.warning("Unexpected or corrupted msg\nMessage: %s", text)
         
 def disarm():
-    cmd = {"disarm":True}
-    message = _serialize_json(cmd)
-    ser.write(message.encode())
+    global _arm
+    if _arm:
+        cmd = {"type":"cmd","disarm":True}
+        packet = _serialize_json(cmd).encode()
+        while _arm:
+            _ser.write(packet)
+            get_feedback(timeout=10)
+
+        log.info("Disarming success.")
 
 if __name__ == "__main__":
     arm()
 
     for i in range(50):     # try running 5 secs
-        send_cmd(600,0)
+        send_cmd(0,0)
         get_feedback()
         time.sleep(0.1)
-        log.debug("Heartbeat %d", heartbeat)
+        log.debug("_recv_count %d", _recv_count)
 
     disarm()
     
