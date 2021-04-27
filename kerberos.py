@@ -3,6 +3,7 @@ import os
 import re
 import socket
 import logging as log
+log.basicConfig(format='[%(levelname)s][%(asctime)s] %(message)s', level=log.DEBUG)
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
@@ -10,7 +11,6 @@ from selenium.webdriver.chrome.options import Options
 import json
 import time
 
-log.basicConfig(format='[%(levelname)s][%(asctime)s] %(message)s', level=log.DEBUG)
 
 # SERVERIP = '192.168.0.10'
 

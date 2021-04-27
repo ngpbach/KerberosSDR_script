@@ -6,7 +6,7 @@ from pymavlink import mavutil
 # Create the connection
 master = mavutil.mavlink_connection("/dev/ttyACM0", baud=115200)
 
-def do_handshake():
+def arm():
     # Wait a heartbeat before sending commands
     master.wait_heartbeat()
 
@@ -45,7 +45,7 @@ def disarm():
     master.arducopter_disarm()
 
 if __name__ == "__main__":
-    do_handshake()
+    arm()
 
     for i in range(50): # try running 5 secs
         send_cmd(300,0)

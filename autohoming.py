@@ -3,9 +3,9 @@ import time
 import threading
 import socket
 import json
-import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s] %(message)s', level=log.DEBUG)
 import nucleo as target     # pixhawk or nucleo
+import logging as log
+log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
 
 radio_bearing = 0
 
@@ -25,6 +25,7 @@ def thread_get_bearing(UDP_IP = "127.0.0.1", UDP_PORT = 5005):
 
         try:
             data = json.loads(message.decode())
+            radio_bearing = data["bearing"] - 45
         except json.JSONDecodeError:
             log.error("Msg: corrupt or incorrect format\nReceived msg: %s", message.decode())
             continue
@@ -32,7 +33,6 @@ def thread_get_bearing(UDP_IP = "127.0.0.1", UDP_PORT = 5005):
             log.error("Msg: no [bearing] key received\nReceived msg: %s %s", message.decode())
             continue
 
-        radio_bearing = data["bearing"] - 45
 
 def calculate_effort():
     yaw = 2*radio_bearing       # turning effort proportional to bearing
@@ -41,7 +41,7 @@ def calculate_effort():
 if __name__ == "__main__":
     beartask = threading.Thread(target=thread_get_bearing)
     beartask.start()
-    target.do_handshake()
+    target.arm()
 
     while(1):
         log.info("Current bearing %s:", radio_bearing)
