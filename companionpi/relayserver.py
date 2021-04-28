@@ -12,21 +12,6 @@ log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', 
 
 #TODO: switch pi serial to normal UART when script start
 
-
-""" Device specific settings """
-# BAUD = 9600    # baud of LORA UART
-# DEVICE = "/dev/serial0"
-# try:
-#     ser = serial.Serial(DEVICE, BAUD)
-#     time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
-#     ser.reset_input_buffer()
-# except serial.SerialException as msg:
-#     log.error(msg)
-
-# def terminate():
-#     ser.close()
-#     log.info("Serial closed")
-
 WHOAMI = "pi"
 TARGET = "gcs"
 PORT_RELAY = 5000      # netcat link all serial stream to localhost on this UDP port
@@ -36,8 +21,8 @@ LOCALHOST = "127.0.0.1"
 
 """ Device specific settings """
 BAUD = 9600    # baud of LORA UART
-# DEVICE = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AB0LNG4V-if00-port0"       # requires platformio UDEV
-DEVICE = "./pttyout"
+DEVICE = "/dev/serial0"
+# DEVICE = "./pttyout"
 
 class RelayServer:
     """ Convenient class for forwarding JSON packet to the appropriate port """

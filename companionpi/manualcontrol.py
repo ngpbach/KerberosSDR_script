@@ -12,7 +12,7 @@ log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBU
 if __name__ == "__main__":
     while(1):
         joy.joystick_update()
-        js_active = joy.axes[5] > 0     # hold down RT button to use joystick
+        js_active = joy.axes[2] > 0     # hold down LT button to use joystick
         if js_active:
             arm = joy.btns[0]
             disarm = joy.btns[1]

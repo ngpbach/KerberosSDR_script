@@ -91,7 +91,7 @@ if __name__ == "__main__":
     compass_task.start()
 
     while(1):
-        js_active = joy.axes[5] > 0         # hold down RT button to use joystick
+        js_active = joy.axes[2] > 0         # hold down LT button to use joystick
         if js_active:
             arm = joy.btns[0]               # press A to arm
             disarm = joy.btns[1]            # press B to disarm
