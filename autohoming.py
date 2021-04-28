@@ -4,51 +4,97 @@ import threading
 import socket
 import json
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
-import joystick as joy
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
 import nucleo as target     # pixhawk or nucleo
 
-radio_bearing = 0
+PORT_KERB = 5005
+PORT_JS = 5006
+LOCALHOST = "127.0.0.1"
 
-def thread_get_bearing(UDP_IP = "127.0.0.1", UDP_PORT = 5005):
-    global radio_bearing
-    bearing_sock = socket.socket(socket.AF_INET, # Internet
-                                socket.SOCK_DGRAM) # UDP
-    bearing_sock.bind((UDP_IP, UDP_PORT))
-    bearing_sock.settimeout(5)
-
-    while True:
+class Joystick:
+    """ Convenient class for getting joystick data from UDP packet """
+    def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_JS):
+        self.axes = [0]*6
+        self.btns = [0]*6
+        self.sock = socket.socket(socket.AF_INET, # Internet
+                                    socket.SOCK_DGRAM) # UDP
+        self.sock.bind((UDP_IP, UDP_PORT))
+        self.sock.settimeout(1)
+    
+    def update(self):
         try:
-            message, addr = bearing_sock.recvfrom(1024) # buffer size is 1024 bytes
+            message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
+            # log.debug(message)
+            packet = json.loads(message.decode())
+            self.axes = packet["axes"]
+            self.btns = packet["btns"]
+            
         except socket.timeout:
-            log.warning("UDP: timed out waiting for bearing msg")
-            continue
-
-        try:
-            data = json.loads(message.decode())
-            radio_bearing = data["bearing"] - 45
+            log.debug("Socket timed out waiting for Joystick msg")
         except json.JSONDecodeError:
-            log.error("Msg: corrupt or incorrect format\nReceived msg: %s", message.decode())
-            continue
-        except KeyError:
-            log.error("Msg: no [bearing] key received\nReceived msg: %s %s", message.decode())
-            continue
+            log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
+        except KeyError as msg:
+            log.error("Packet received has no [%s] key", msg)
+
+class RadioCompass:
+    """ Convenient class for getting radio compass data from UDP packet """
+    def __init__(self, UDP_IP = "127.0.0.1", UDP_PORT = PORT_KERB):
+        self.bearing = 0
+        self.strength = 0
+        self.confidence = 0
+        self.sock = socket.socket(socket.AF_INET, # Internet
+                                    socket.SOCK_DGRAM) # UDP
+        self.sock.bind((UDP_IP, UDP_PORT))
+        self.sock.settimeout(1)
+    
+    def update(self):
+        try:
+            message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
+            # log.debug(message)
+            packet = json.loads(message.decode())
+            if packet["type"] == "radiocompass":
+                self.bearing = packet["bearing"]
+                self.strength = packet["strength"]
+                self.confidence = packet["confidence"]
+            
+        except socket.timeout:
+            log.debug("Socket timed out waiting for Radio Compass msg")
+        except json.JSONDecodeError:
+            log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
+        except KeyError as msg:
+            log.error("Packet received has no [%s] key", msg)
 
 
 def calculate_effort():
-    yaw = 2*radio_bearing       # turning effort proportional to bearing
+    yaw = 0       # turning effort proportional to bearing
     return 0, yaw
 
+
+joy = Joystick()
+compass = RadioCompass()
+
+def joystick_thread():
+    while True:
+        joy.update()
+        time.sleep(0.1)
+
+def compass_thread():
+    while True:
+        compass.update()
+        time.sleep(0.1)
+
+
 if __name__ == "__main__":
-    beartask = threading.Thread(target=thread_get_bearing)
-    beartask.start()
+    joystick_task = threading.Thread(target=joystick_thread)
+    compass_task = threading.Thread(target=compass_thread)
+    joystick_task.start()
+    compass_task.start()
 
     while(1):
-        joy.joystick_update()
-        js_active = joy.axes[5] > 0     # hold down RT button to use joystick
+        js_active = joy.axes[5] > 0         # hold down RT button to use joystick
         if js_active:
-            arm = joy.btns[0]       # press A to arm
-            disarm = joy.btns[1]    # press B to disarm
+            arm = joy.btns[0]               # press A to arm
+            disarm = joy.btns[1]            # press B to disarm
             yaw = int(-joy.axes[0]*1000)    # left stick left-right for yaw
             pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
 
@@ -71,7 +117,7 @@ if __name__ == "__main__":
             if (target.armed):
                 target.send_cmd(pitch, yaw)
             
-            log.debug("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {} Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, radio_bearing))
+            log.debug("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {} Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, compass.bearing))
 
         target.get_feedback()
         time.sleep(0.1)

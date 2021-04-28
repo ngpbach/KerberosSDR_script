@@ -5,8 +5,11 @@ from pymavlink import mavutil
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
 
+""" Device specific settings """
+BAUD = 115200    # baud of LORA UART
+DEVICE = "/dev/ttyACM0"
 # Create the connection
-master = mavutil.mavlink_connection("/dev/ttyACM0", baud=115200)
+master = mavutil.mavlink_connection(DEVICE, BAUD)
 
 
 armed = False

@@ -3,7 +3,7 @@
 import time
 try:
     import joystick as joy
-except UserWarning as msg:
+except Exception as msg:
     log.warning(msg)
 import nucleo as target     # pixhawk or nucleo
 import logging as log

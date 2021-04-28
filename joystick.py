@@ -1,33 +1,38 @@
 #!/usr/bin/env python3
 
-import threading
 import time
+import sys
 import numpy as np
+import serial
+import json
 from os import environ
 environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import pygame
+import logging as log
+log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
 
 pygame.init()
-
 if pygame.joystick.get_count() == 0:
-    raise UserWarning("No Joystick device found, ignore Joystick function")
+    raise RuntimeError("No Joystick device found, Joystick function unavailable")
 
-# for i in range(pygame.joystick.get_count()):
-#     js = pygame.joystick.Joystick(i)
-#     print ("{} ----- ".format(i) + js.get_name())
-
-# choice = int(input("Enter number:"))
 choice = 0
+if __name__ == "__main__":
+    for i in range(pygame.joystick.get_count()):
+        js = pygame.joystick.Joystick(i)
+        print ("{} ----- ".format(i) + js.get_name())
+
+    choice = int(input("Enter number:"))
+
 js = pygame.joystick.Joystick(choice)
 js.init()
-print ("Using " + js.get_name())
+log.info("Using " + js.get_name())
 
 axis_count = js.get_numaxes()
 btn_count = js.get_numbuttons()
 arrw_count = js.get_numhats()
-axes = np.zeros(axis_count)
-btns = np.zeros(btn_count)
-arrws = [None]*arrw_count
+axes = [0]*axis_count
+btns = [0]*btn_count
+arrws = [0]*arrw_count
 deadband = 0.05
 
 def joystick_update():
@@ -41,11 +46,8 @@ def joystick_update():
     for i in range (arrw_count):
         arrws[i] = js.get_hat(i)
 
-
 if __name__ == "__main__":
     while(1):
         joystick_update()
-        print("Axes value: {}".format(axes))
-        print("Buttons value: {}".format(btns))
-        print("Arrows value: {}".format(arrws))
+        log.debug("\n\tAxes value: {}\n\tButtons value: {}\n\tArrows value: {}".format(axes, btns, arrws))
         time.sleep(0.1)
