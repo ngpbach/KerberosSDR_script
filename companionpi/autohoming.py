@@ -21,7 +21,7 @@ class Joystick:
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(5)
+        self.sock.settimeout(10)
     
     def update(self):
         try:
@@ -47,7 +47,7 @@ class RadioCompass:
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(5)
+        self.sock.settimeout(10)
     
     def update(self):
         try:
@@ -71,7 +71,6 @@ class Telemetry:
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_RELAY):
         self.sock = socket.socket(socket.AF_INET,   # Internet
                                 socket.SOCK_DGRAM)  # UDP
-        self.sock.settimeout(1)
     
     def update(self):
         packet = {}
@@ -94,12 +93,10 @@ def calculate_effort():
 def joystick_thread():
     while True:
         joy.update()
-        time.sleep(0.1)
 
 def compass_thread():
     while True:
         compass.update()
-        time.sleep(0.1)
 
 def telem_thread():
     while True:

@@ -39,7 +39,7 @@ class RelayServer:
         self.sock = socket.socket(socket.AF_INET,   # Internet
                                 socket.SOCK_DGRAM)  # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(1)
+        self.sock.settimeout(10)
     
     def serial_to_udp(self):
        try:
@@ -85,7 +85,6 @@ server = RelayServer()
 def serial_to_udp_thread():
     while True:
         server.serial_to_udp()
-        time.sleep(0.001)
 
 def udp_to_serial_thread():
     while True:
