@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Act as relay server for the pi to compile and sort serial packet and send through UDP to the appropriate port
+Act as relay server for the pi to compile and sort serial packet and send through UDP to the appropriate port, and vice versa
 Swith to Pi serial console mode when commanded to
 """
 import time
+import threading
 import socket
 import serial
 import json
@@ -37,22 +38,21 @@ class RelayServer:
         
         self.sock = socket.socket(socket.AF_INET,   # Internet
                                 socket.SOCK_DGRAM)  # UDP
-        # self.sock.bind((UDP_IP, UDP_PORT))
+        self.sock.bind((UDP_IP, UDP_PORT))
         self.sock.settimeout(1)
     
-    def update(self):
+    def serial_to_udp(self):
         while True:
             try:
-                # message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-                message = self.ser.readline().decode()
+                message = self.ser.readline()
                 # log.debug(message)                
-                packet = json.loads(message)
+                packet = json.loads(message.decode)
 
                 if packet["type"] == "js":
-                    self.sock.sendto(message.encode(), (LOCALHOST, PORT_JS))
+                    self.sock.sendto(message, (LOCALHOST, PORT_JS))
                     
                 elif packet["type"] == "cmd":
-                    if packet["action"] == "to_serial_console":
+                    if packet["act"] == "console":
                         # TODO: switch pi to serial console mode and exit
                         pass
 
@@ -64,9 +64,40 @@ class RelayServer:
             except KeyError as msg:
                 log.error("Packet received has no [%s] key", msg)
 
+    def udp_to_serial(self):
+        while True:
+            try:
+                message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
+                # log.debug(message)                
+                packet = json.loads(message)
+
+                if packet["type"] == "telem":
+                    self.ser.write(message.decode())
+                                    
+            except socket.timeout:
+                log.debug("Socket timed out waiting for msg")
+            except json.JSONDecodeError:
+                log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
+            except KeyError as msg:
+                log.error("Packet received has no [%s] key", msg)
+
+
 server = RelayServer()
 
+def serial_to_udp_thread():
+    while True:
+        server.serial_to_udp()
+        time.sleep(0.1)
+
+def udp_to_serial_thread():
+    while True:
+        server.udp_to_serial()
+        time.sleep(0.1)
+
+
 if __name__ == "__main__":
-    while (True):
-        server.update()
-        time.sleep(0.001)
+    serial_to_udp = threading.Thread(target=serial_to_udp_thread)
+    udp_to_serial = threading.Thread(target=udp_to_serial_thread)
+    serial_to_udp.start()
+    udp_to_serial.start()
+

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
+from os import POSIX_FADV_SEQUENTIAL
 import time
 import threading
 import socket
 import json
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
 import nucleo as target     # pixhawk or nucleo
 
-PORT_KERB = 5005
-PORT_JS = 5006
+PORT_RELAY = 5000
+PORT_KERB = 5001
+PORT_JS = 5002
 LOCALHOST = "127.0.0.1"
 
 class Joystick:
@@ -63,14 +65,29 @@ class RadioCompass:
         except KeyError as msg:
             log.error("Packet received has no [%s] key", msg)
 
+joy = Joystick()
+compass = RadioCompass()
+
+class Telemetry:
+    """ Convenient class for sending telemetry data to ground station through relay server """
+    def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_RELAY):
+        self.sock = socket.socket(socket.AF_INET,   # Internet
+                                socket.SOCK_DGRAM)  # UDP
+        self.sock.settimeout(1)
+    
+    def update(self):
+        while True:
+            packet = {}
+            packet["type"] = "telem"
+            packet["bearing"] = compass.bearing
+            packet["arm"] = target.armed
+            message = json.dumps(packet)
+            # log.debug(message)            
+            self.sock.sendto(message.encode(), (LOCALHOST, PORT_RELAY))
 
 def calculate_effort():
     yaw = 0       # turning effort proportional to bearing
     return 0, yaw
-
-
-joy = Joystick()
-compass = RadioCompass()
 
 def joystick_thread():
     while True:
@@ -81,7 +98,6 @@ def compass_thread():
     while True:
         compass.update()
         time.sleep(0.1)
-
 
 if __name__ == "__main__":
     joystick_task = threading.Thread(target=joystick_thread)

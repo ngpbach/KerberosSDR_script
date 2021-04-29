@@ -4,7 +4,7 @@ import serial
 import json
 import atexit
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
+log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.INFO)
 
 """ Device specific settings """
 BAUD = 115200    # baud of LORA UART
