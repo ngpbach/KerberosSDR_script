@@ -131,7 +131,7 @@ if __name__ == "__main__":
         # compass = int(re.findall(r'\d+', doa.text)[0]) - 45
         compass = int("40")
         message = json.dumps({"bearing":compass}, separators=(',', ':'))
-        log.info(message)
+        log.debug(message)
         sock.sendto(message.encode(), (UDP_IP, UDP_PORT))
         time.sleep(1)
 
