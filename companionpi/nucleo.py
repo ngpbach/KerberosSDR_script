@@ -70,7 +70,7 @@ def disarm():
         packet = _make_json_packet(cmd)
         while armed:
             _ser.write(packet)
-            get_feedback(timeout=10)
+            get_feedback(timeout=5)
 
         if not armed:
             log.info("Disarming success.")
@@ -89,9 +89,10 @@ def get_feedback(timeout=0.1):
     global heartbeat
     _ser.timeout = timeout
     text = _ser.readline().decode()
-    # log.debug("Received:", text)
     if not text:
+        log.error("Serial read timeout")
         return
+    # log.debug("Received:", text)
     try:
         packet = json.loads(text)
         
