@@ -9,7 +9,7 @@ import socket
 import serial
 import json
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
 
 #TODO: switch pi serial to normal UART when script start
 
@@ -39,11 +39,15 @@ class RelayServer:
         self.sock = socket.socket(socket.AF_INET,   # Internet
                                 socket.SOCK_DGRAM)  # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(10)
+        self.sock.settimeout(0.1)
     
     def serial_to_udp(self):
        try:
            message = self.ser.readline()
+           if not message:
+               log.error("Serial read timeout")
+               return
+
            #log.debug(message)                
            packet = json.loads(message.decode())
 
@@ -97,4 +101,3 @@ if __name__ == "__main__":
     udp_to_serial = threading.Thread(target=udp_to_serial_thread)
     serial_to_udp.start()
     udp_to_serial.start()
-
