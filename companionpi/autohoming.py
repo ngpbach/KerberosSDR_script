@@ -19,15 +19,15 @@ class Joystick:
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(1)
+        self.sock.settimeout(5)
     
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             # log.debug(message)
             packet = json.loads(message.decode())
-            self.axes = packet["axes"]
-            self.btns = packet["btns"]
+            self.axes = packet["ax"]
+            self.btns = packet["bt"]
             
         except socket.timeout:
             log.debug("Socket timed out waiting for Joystick msg")
@@ -45,17 +45,16 @@ class RadioCompass:
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(1)
+        self.sock.settimeout(5)
     
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             # log.debug(message)
             packet = json.loads(message.decode())
-            if packet["type"] == "radiocompass":
-                self.bearing = packet["bearing"]
-                self.strength = packet["strength"]
-                self.confidence = packet["confidence"]
+            self.bearing = packet["bearing"]
+            self.strength = packet["strength"]
+            self.confidence = packet["confidence"]
             
         except socket.timeout:
             log.debug("Socket timed out waiting for Radio Compass msg")

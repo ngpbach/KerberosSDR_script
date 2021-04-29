@@ -28,7 +28,7 @@ class RelayServer:
     """ Convenient class for forwarding JSON packet to the appropriate port """
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_RELAY):
         try:
-            self.ser = serial.Serial(DEVICE, BAUD, timeout=0.1)
+            self.ser = serial.Serial(DEVICE, BAUD, timeout=5)
             time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
             self.ser.reset_input_buffer()
         except serial.SerialException as msg:
@@ -45,17 +45,16 @@ class RelayServer:
             try:
                 # message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
                 message = self.ser.readline().decode()
-                log.debug(message)                
+                # log.debug(message)                
                 packet = json.loads(message)
 
-                if packet["target"] == WHOAMI:
-                    if packet["type"] == "js":
-                        self.sock.sendto(message.encode(), (LOCALHOST, PORT_JS))
+                if packet["type"] == "js":
+                    self.sock.sendto(message.encode(), (LOCALHOST, PORT_JS))
                     
-                    elif packet["type"] == "cmd":
-                        if packet["action"] == "to_serial_console":
-                            # TODO: switch pi to serial console mode and exit
-                            pass
+                elif packet["type"] == "cmd":
+                    if packet["action"] == "to_serial_console":
+                        # TODO: switch pi to serial console mode and exit
+                        pass
 
                 
             except socket.timeout:
