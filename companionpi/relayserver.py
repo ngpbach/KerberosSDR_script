@@ -8,7 +8,7 @@ import socket
 import serial
 import json
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
 
 #TODO: switch pi serial to normal UART when script start
 
@@ -45,7 +45,7 @@ class RelayServer:
             try:
                 # message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
                 message = self.ser.readline().decode()
-                # log.debug(message)                
+                log.debug(message)                
                 packet = json.loads(message)
 
                 if packet["type"] == "js":

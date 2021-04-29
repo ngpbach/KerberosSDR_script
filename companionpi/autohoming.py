@@ -4,7 +4,7 @@ import threading
 import socket
 import json
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
 import nucleo as target     # pixhawk or nucleo
 
 PORT_KERB = 5005
@@ -24,7 +24,7 @@ class Joystick:
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-            # log.debug(message)
+            log.debug(message)
             packet = json.loads(message.decode())
             self.axes = packet["ax"]
             self.btns = packet["bt"]
@@ -50,7 +50,7 @@ class RadioCompass:
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-            # log.debug(message)
+            log.debug(message)
             packet = json.loads(message.decode())
             self.bearing = packet["bearing"]
             self.strength = packet["strength"]
