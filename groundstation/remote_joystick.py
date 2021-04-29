@@ -2,6 +2,7 @@
 
 import time
 import serial
+import numpy as np
 import json
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
@@ -30,11 +31,12 @@ TARGET = "pi"
 
 def _make_json_packet(axes, btns):
     packet = {}
-    packet["origin"] = WHOAMI
-    packet["target"] = TARGET
+    # Reducing message size to to low serial bandwidth
+    # packet["origin"] = WHOAMI
+    # packet["target"] = TARGET
     packet["type"] = "js"
-    packet["axes"] = axes[0:4]      # only need 4 axes
-    packet["btns"] = btns[0:2]      # only need 2 buttons
+    packet["ax"] = [round(num, 3) for num in axes[0:4]]      # only need 4 axes, with 3 decimal places
+    packet["bt"] = btns[0:2]      # only need 2 buttons
     try:
         text = json.dumps(packet) + '\n'
         return text.encode()
@@ -48,4 +50,4 @@ if __name__ == "__main__":
         packet = _make_json_packet(joy.axes,joy.btns)
         ser.write(packet)
         log.debug("\n\tAxes value: {}\n\tButtons value: {}\n\tArrows value: {}".format(joy.axes, joy.btns, joy.arrws))
-        time.sleep(0.1)
+        time.sleep(0.2)
