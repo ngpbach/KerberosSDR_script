@@ -26,7 +26,7 @@ class Joystick:
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-            log.debug(message)
+            #log.debug(message)
             packet = json.loads(message.decode())
             self.axes = packet["ax"]
             self.btns = packet["bt"]
@@ -52,7 +52,7 @@ class RadioCompass:
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-            log.debug(message)
+            #log.debug(message)
             packet = json.loads(message.decode())
             self.bearing = packet["bearing"]
             self.strength = packet["strength"]
@@ -65,8 +65,6 @@ class RadioCompass:
         except KeyError as msg:
             log.error("Packet received has no [%s] key", msg)
 
-joy = Joystick()
-compass = RadioCompass()
 
 class Telemetry:
     """ Convenient class for sending telemetry data to ground station through relay server """
@@ -76,14 +74,18 @@ class Telemetry:
         self.sock.settimeout(1)
     
     def update(self):
-        while True:
-            packet = {}
-            packet["type"] = "telem"
-            packet["bearing"] = compass.bearing
-            packet["arm"] = target.armed
-            message = json.dumps(packet)
-            # log.debug(message)            
-            self.sock.sendto(message.encode(), (LOCALHOST, PORT_RELAY))
+        packet = {}
+        packet["type"] = "telem"
+        packet["bearing"] = compass.bearing
+        packet["arm"] = target.armed
+        message = json.dumps(packet)
+        # log.debug(message)            
+        self.sock.sendto(message.encode(), (LOCALHOST, PORT_RELAY))
+
+
+joy = Joystick()
+compass = RadioCompass()
+telem = Telemetry()
 
 def calculate_effort():
     yaw = 0       # turning effort proportional to bearing
@@ -99,11 +101,18 @@ def compass_thread():
         compass.update()
         time.sleep(0.1)
 
+def telem_thread():
+    while True:
+        telem.update()
+        time.sleep(1)
+
 if __name__ == "__main__":
     joystick_task = threading.Thread(target=joystick_thread)
     compass_task = threading.Thread(target=compass_thread)
+    telem_task = threading.Thread(target=telem_thread)
     joystick_task.start()
     compass_task.start()
+    telem_task.start()
 
     while(1):
         js_active = joy.axes[2] > 0         # hold down LT button to use joystick

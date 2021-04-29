@@ -9,15 +9,15 @@ import socket
 import serial
 import json
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
 
 #TODO: switch pi serial to normal UART when script start
 
 WHOAMI = "pi"
 TARGET = "gcs"
 PORT_RELAY = 5000      # netcat link all serial stream to localhost on this UDP port
-PORT_KERB = 5005
-PORT_JS = 5006
+PORT_KERB = 5001
+PORT_JS = 5002
 LOCALHOST = "127.0.0.1"
 
 """ Device specific settings """
@@ -42,44 +42,42 @@ class RelayServer:
         self.sock.settimeout(1)
     
     def serial_to_udp(self):
-        while True:
-            try:
-                message = self.ser.readline()
-                # log.debug(message)                
-                packet = json.loads(message.decode)
+       try:
+           message = self.ser.readline()
+           #log.debug(message)                
+           packet = json.loads(message.decode())
 
-                if packet["type"] == "js":
-                    self.sock.sendto(message, (LOCALHOST, PORT_JS))
-                    
-                elif packet["type"] == "cmd":
-                    if packet["act"] == "console":
-                        # TODO: switch pi to serial console mode and exit
-                        pass
+           if packet["type"] == "js":
+               self.sock.sendto(message, (LOCALHOST, PORT_JS))
+               
+           elif packet["type"] == "cmd":
+               if packet["act"] == "console":
+                   # TODO: switch pi to serial console mode and exit
+                   pass
 
-                
-            except socket.timeout:
-                log.debug("Socket timed out waiting for msg")
-            except json.JSONDecodeError:
-                log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
-            except KeyError as msg:
-                log.error("Packet received has no [%s] key", msg)
+           
+       except socket.timeout:
+           log.debug("Socket timed out waiting for msg")
+       except json.JSONDecodeError:
+           log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
+       except KeyError as msg:
+           log.error("Packet received has no [%s] key", msg)
 
     def udp_to_serial(self):
-        while True:
-            try:
-                message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-                # log.debug(message)                
-                packet = json.loads(message)
+       try:
+           message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
+           # log.debug(message)                
+           packet = json.loads(message.decode())
 
-                if packet["type"] == "telem":
-                    self.ser.write(message.decode())
-                                    
-            except socket.timeout:
-                log.debug("Socket timed out waiting for msg")
-            except json.JSONDecodeError:
-                log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
-            except KeyError as msg:
-                log.error("Packet received has no [%s] key", msg)
+           if packet["type"] == "telem":
+               self.ser.write(message + b'\n')    # endline is important for framing
+                               
+       except socket.timeout:
+           log.debug("Socket timed out waiting for msg")
+       except json.JSONDecodeError:
+           log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
+       except KeyError as msg:
+           log.error("Packet received has no [%s] key", msg)
 
 
 server = RelayServer()
@@ -87,12 +85,12 @@ server = RelayServer()
 def serial_to_udp_thread():
     while True:
         server.serial_to_udp()
-        time.sleep(0.1)
+        time.sleep(0.001)
 
 def udp_to_serial_thread():
     while True:
         server.udp_to_serial()
-        time.sleep(0.1)
+        time.sleep(1)   # wireless serial is slow
 
 
 if __name__ == "__main__":
