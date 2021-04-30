@@ -4,9 +4,9 @@ import time
 import threading
 import socket
 import json
+import nucleo as target     # pixhawk or nucleo
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
-import nucleo as target     # pixhawk or nucleo
 
 PORT_RELAY = 5000
 PORT_KERB = 5001
