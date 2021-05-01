@@ -16,6 +16,7 @@ master = mavutil.mavlink_connection(DEVICE, BAUD)
 
 
 armed = False
+heartbeat = 0
 
 def arm():
     global armed
@@ -57,13 +58,11 @@ def disarm():
 
 def get_ack():
     # Wait for ACK command
-    ack_msg = master.recv_match(type='COMMAND_ACK', blocking=True)
-    ack_msg = ack_msg.to_dict()
-
+    ack_msg = master.recv_match(type='COMMAND_ACK', blocking=True).to_dict()
     if ack_msg['result'] == 0:
         return True
-
-    log.debug(mavutil.mavlink.enums['MAV_RESULT'][ack_msg['result']].description)
+    else:
+        log.debug(mavutil.mavlink.enums['MAV_RESULT'][ack_msg['result']].description)
 
 def send_cmd(pitch, yaw):
     # https://mavlink.io/en/messages/common.html#MANUAL_CONTROL
@@ -77,12 +76,25 @@ def send_cmd(pitch, yaw):
                                     yaw,
                                     0)
 
+def get_feedback():
+    global heartbeat
+    try:
+        message = master.recv_match().to_dict()
+        if message['mavpackettype'] == 'HEARTBEAT':
+            heartbeat += 1
+            
+        # log.debug(message)
+    except Exception as msg:
+        log.error(msg)
+
 
 
 if __name__ == "__main__":
     arm()
     send_cmd(200,0)
-    time.sleep(5)
+    for i in range(10):
+        get_feedback()
+        time.sleep(1)
 
     disarm()
 

@@ -4,7 +4,7 @@ import time
 import threading
 import socket
 import json
-import nucleo as target     # pixhawk or nucleo
+import pixhawk as target     # pixhawk or nucleo
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
 
@@ -81,6 +81,18 @@ class Telemetry:
         # log.debug(message)            
         self.sock.sendto(message.encode(), (LOCALHOST, PORT_RELAY))
 
+class Timer:
+    def __init__(self, duration):
+        self.duration = duration
+        self.start = time.time()
+    
+    def check(self):
+        elapsed = time.time() - self.start
+        if elapsed > self.duration:
+            self.start = time.time()
+            return True
+
+        return False
 
 joy = Joystick()
 compass = RadioCompass()
@@ -111,6 +123,7 @@ if __name__ == "__main__":
     compass_task.start()
     telem_task.start()
 
+    feedback_timer = Timer(1)
     while(1):
         js_active = joy.axes[2] > 0         # hold down LT button to use joystick
         if js_active:
@@ -140,5 +153,7 @@ if __name__ == "__main__":
             
             log.debug("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {} Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, compass.bearing))
 
-        target.get_feedback()
+        if feedback_timer.check():
+            target.get_feedback()
+            
         time.sleep(0.1)
