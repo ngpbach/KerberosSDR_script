@@ -1,0 +1,19 @@
+[INFO][2021-05-02 00:24:07,924][<module>]Relay server started. Serial console mode disable
+[DEBUG][2021-05-02 00:24:09,028][udp_to_serial]Socket timed out waiting for msg
+Exception in thread Thread-1:
+Traceback (most recent call last):
+  File "/usr/lib/python3.7/threading.py", line 917, in _bootstrap_inner
+    self.run()
+  File "/usr/lib/python3.7/threading.py", line 865, in run
+    self._target(*self._args, **self._kwargs)
+  File "./relayserver.py", line 110, in serial_to_udp_thread
+    server.serial_to_udp()
+  File "./relayserver.py", line 75, in serial_to_udp
+    self.ser.write(message.encode)    # endline is important for framing
+  File "/usr/lib/python3/dist-packages/serial/serialposix.py", line 532, in write
+    d = to_bytes(data)
+  File "/usr/lib/python3/dist-packages/serial/serialutil.py", line 66, in to_bytes
+    return bytes(bytearray(seq))
+TypeError: 'builtin_function_or_method' object is not iterable
+
+[INFO][2021-05-02 00:24:13,759][terminate]Relay server exiting. Serial console mode enable

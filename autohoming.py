@@ -6,12 +6,28 @@ import socket
 import json
 import pixhawk as target     # pixhawk or nucleo
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
 
 PORT_RELAY = 5000
 PORT_KERB = 5001
 PORT_JS = 5002
 LOCALHOST = "127.0.0.1"
+
+class Timer:
+    def __init__(self, duration):
+        self.duration = duration
+        self.start = time.time()
+
+    def reset(self):
+        self.start = time.time()
+    
+    def check(self):
+        elapsed = time.time() - self.start
+        if elapsed > self.duration:
+            self.reset()
+            return True
+
+        return False
 
 class Joystick:
     """ Convenient class for getting joystick data from UDP packet """
@@ -22,16 +38,22 @@ class Joystick:
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
         self.sock.settimeout(10)
+
+    def reset(self):
+        self.axes = [0]*6
+        self.btns = [0]*6
     
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             #log.debug(message)
             packet = json.loads(message.decode())
-            self.axes = packet["ax"]
-            self.btns = packet["bt"]
+            if packet["type"] == "js":
+                self.axes = packet["ax"]
+                self.btns = packet["bt"]
             
         except socket.timeout:
+            self.reset()
             log.debug("Socket timed out waiting for Joystick msg")
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
@@ -41,7 +63,7 @@ class Joystick:
 class RadioCompass:
     """ Convenient class for getting radio compass data from UDP packet """
     def __init__(self, UDP_IP = "127.0.0.1", UDP_PORT = PORT_KERB):
-        self.bearing = 0
+        self.bearing = None
         self.strength = 0
         self.confidence = 0
         self.sock = socket.socket(socket.AF_INET, # Internet
@@ -49,16 +71,29 @@ class RadioCompass:
         self.sock.bind((UDP_IP, UDP_PORT))
         self.sock.settimeout(10)
     
+    def reset(self):
+        self.bearing = None
+        self.strength = 0
+        self.confidence = 0
+
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-            #log.debug(message)
+            # log.info(message)
             packet = json.loads(message.decode())
-            self.bearing = packet["bearing"]
             self.strength = packet["strength"]
             self.confidence = packet["confidence"]
+
+            if self.strength > 5 and self.confidence > 1:
+                self.bearing = packet["bearing"]
+                if self.bearing > 180:
+                    self.bearing = -(360 - self.bearing)
+
+            else:
+                self.bearing = None
             
         except socket.timeout:
+            self.reset()
             log.debug("Socket timed out waiting for Radio Compass msg")
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
@@ -77,30 +112,23 @@ class Telemetry:
         packet["type"] = "telem"
         packet["bearing"] = compass.bearing
         packet["arm"] = target.armed
+        packet["heartbeat"] = target.heartbeat
         message = json.dumps(packet)
         # log.debug(message)            
         self.sock.sendto(message.encode(), (LOCALHOST, PORT_RELAY))
-
-class Timer:
-    def __init__(self, duration):
-        self.duration = duration
-        self.start = time.time()
-    
-    def check(self):
-        elapsed = time.time() - self.start
-        if elapsed > self.duration:
-            self.start = time.time()
-            return True
-
-        return False
 
 joy = Joystick()
 compass = RadioCompass()
 telem = Telemetry()
 
-def calculate_effort():
-    yaw = 0       # turning effort proportional to bearing
-    return 0, yaw
+def calculate_effort(bearing):
+    if not bearing:             # no bearing received or bearing invalid
+        pitch = 0
+        yaw = 0           
+    else:
+        pitch = 0
+        yaw = bearing * 2       # turning effort proportional to bearing
+    return pitch, yaw
 
 def joystick_thread():
     while True:
@@ -147,11 +175,12 @@ if __name__ == "__main__":
             log.debug("Using joystick control\n Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, target.armed, target.heartbeat))
 
         else:
-            pitch, yaw = calculate_effort()
+            pitch, yaw = calculate_effort(compass.bearing)
+
             if (target.armed):
                 target.send_cmd(pitch, yaw)
             
-            log.debug("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {} Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, compass.bearing))
+            log.debug("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, compass.bearing))
 
         if feedback_timer.check():
             target.get_feedback()
