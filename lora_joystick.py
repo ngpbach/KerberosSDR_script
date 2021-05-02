@@ -42,10 +42,19 @@ def send_command(cmd):
         # packet["origin"] = WHOAMI
         # packet["target"] = TARGET
         packet["type"] = "cmd"
-        packet["act"] = cmd
+        packet["cmd"] = cmd
         message = json.dumps(packet) + '\n'
         # log.debug("Sending: %s", message)
+        read_mutex.acquire()
         ser.write(message.encode())
+        packet = get_feedback("ack")
+        read_mutex.release()
+
+        if packet and packet["cmd"] == cmd:
+            return True
+        else:
+            return False
+
     except TypeError as msg:
         log.error(msg)
 
@@ -64,15 +73,21 @@ def send_joystick(axes, btns):
     except TypeError as msg:
         log.error(msg)
 
-def get_feedback():
+read_mutex = threading.Lock()
+def get_feedback(type="telem"):
     try:
         message = ser.readline()
         if not message:
             log.error("Serial read timeout")
 
-        log.debug(message)                
-        # packet = json.loads(message.decode())
-        
+        log.debug(message)
+        packet = json.loads(message.decode())
+        if packet["type"] == type:
+            return packet
+    
+
+    except UnicodeDecodeError:
+        log.error("Gargabe characters received: %s", message)
     except json.JSONDecodeError:
         log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
     except KeyError as msg:
@@ -80,14 +95,24 @@ def get_feedback():
 
 def get_feedback_thread():
     while True:
+        read_mutex.acquire()
         get_feedback()
+        read_mutex.release()
+
+        time.sleep(0.1)
 
 def send_joystick_thread():
     while True:
         joy.joystick_update()
         if (joy.btns[7]):
-            send_command("exit")
-            exit()
+            ack = send_command("exit")
+            if ack:
+                log.info("Pi relay server exited successfully")
+            else:
+                log.warning("Pi relay server might have failed to exit")
+
+            exit(0)
+
 
         send_joystick(joy.axes, joy.btns)
         time.sleep(1)     # wireless serial is slow
