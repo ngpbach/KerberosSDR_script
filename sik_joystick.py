@@ -5,9 +5,13 @@ try:
     import joystick as joy
 except Exception as msg:
     raise
-import pixhawk as target     # pixhawk or nucleo
+from pixhawk import Pixhawk     # pixhawk or nucleo
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBUG)
+
+""" Sik Radio settings """
+DEVICE = "/dev/serial/by-id/usb-Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_01E97D63-if00-port0"
+BAUD = 57200
 
 class Timer:
     def __init__(self, duration):
@@ -23,7 +27,9 @@ class Timer:
         return False
 
 if __name__ == "__main__":
+    target = Pixhawk(DEVICE, BAUD)
     feedback_timer = Timer(1)
+
     while(1):
         joy.joystick_update()
         js_active = joy.axes[2] > 0     # hold down LT button to use joystick
@@ -42,7 +48,7 @@ if __name__ == "__main__":
                 if (pitch == 0 and yaw == 0):
                     target.arm()
                 else:
-                    log.info("Joystick Pitch and Yaw must be neutral for arming")  
+                    log.info("Joystick Pitch and Yaw must be neutral for arming")
 
             if disarm:   # press B to disarm
                 target.disarm()

@@ -11,11 +11,11 @@ log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', 
 try:
     import joystick as joy
 except Exception as msg:
-    log.warning(msg)
+    raise
 
-""" Device specific settings """
-BAUD = 9600    # baud of LORA UART
+""" LORA serial settings """
 DEVICE = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AB0LNG4V-if00-port0"       # requires platformio UDEV
+BAUD = 9600    # baud of LORA UART
 # DEVICE = "./pttyin"
 
 try:
@@ -27,7 +27,6 @@ except serial.SerialException as msg:
     raise    
 
 def terminate():
-    send_command("exit")
     ser.close()
 
 atexit.register(terminate)
@@ -99,7 +98,6 @@ def get_feedback_thread():
         get_feedback()
         read_mutex.release()
 
-        time.sleep(0.1)
 
 def send_joystick_thread():
     while True:

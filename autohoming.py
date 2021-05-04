@@ -4,9 +4,15 @@ import time
 import threading
 import socket
 import json
-import pixhawk as target     # pixhawk or nucleo
+from pixhawk import Pixhawk     # pixhawk or nucleo
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
+
+
+""" Pixhawk USB connection settings """
+DEVICE = "/dev/serial/by-id/usb-ArduPilot_Pixhawk1_360027001051303239353934-if00"
+BAUD = 115200
+
 
 PORT_RELAY = 5000
 PORT_KERB = 5001
@@ -62,7 +68,7 @@ class Joystick:
 
 class RadioCompass:
     """ Convenient class for getting radio compass data from UDP packet """
-    def __init__(self, UDP_IP = "127.0.0.1", UDP_PORT = PORT_KERB):
+    def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_KERB):
         self.bearing = None
         self.strength = 0
         self.confidence = 0
@@ -151,6 +157,7 @@ if __name__ == "__main__":
     compass_task.start()
     telem_task.start()
 
+    target = Pixhawk(DEVICE, BAUD)
     feedback_timer = Timer(1)
     while(1):
         js_active = joy.axes[2] > 0         # hold down LT button to use joystick
