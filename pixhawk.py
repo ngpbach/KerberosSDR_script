@@ -34,13 +34,13 @@ class Pixhawk:
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             mode_id)
 
-        manual = get_ack()
+        manual = get_ack(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
 
         if manual:
             # https://mavlink.io/en/messages/common.html
             # Arm
             master.arducopter_arm()
-            self.armed = get_ack()
+            self.armed = get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
             if self.armed:
                 log.info("Arming success.")
             else:
@@ -52,18 +52,18 @@ class Pixhawk:
 
     def disarm():
         self.armed = master.arducopter_disarm()
-        self.armed = not get_ack()
+        self.armed = not get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
 
         if not self.armed:
             log.info("Disarming success.")
         else:
             log.warning("Disarming failed")
 
-    def get_ack():
+    def get_ack(cmd):
         # Wait for ACK command
         try:
             ack_msg = master.recv_match(type='COMMAND_ACK', blocking=True).to_dict()
-            if ack_msg['result'] == 0:
+            if ack_msg["command"] = cmd and ack_msg['result'] == 0:
                 return True
             else:
                 log.debug(mavutil.mavlink.enums['MAV_RESULT'][ack_msg['result']].description)
