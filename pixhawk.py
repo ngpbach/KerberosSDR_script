@@ -15,104 +15,104 @@ class Pixhawk:
 
     def __init__(self, DEVICE, BAUD):
         self.armed = False
-        heartbeat = 0
-        master = mavutil.mavlink_connection(DEVICE, BAUD)
+        self.heartbeat = 0
+        self.master = mavutil.mavlink_connection(DEVICE, BAUD)
 
-    def arm():
+    def arm(self):
         # Wait a heartbeat before sending commands
-        master.wait_heartbeat()
+        self.master.wait_heartbeat()
 
         # Choose a mode
         mode = 'MANUAL'
 
         # Get mode ID
-        mode_id = master.mode_mapping()[mode]
+        mode_id = self.master.mode_mapping()[mode]
 
         # Set new mode
-        master.mav.set_mode_send(
-            master.target_system,
+        self.master.mav.set_mode_send(
+            self.master.target_system,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             mode_id)
 
-        manual = get_ack(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
+        ack = self.get_ack(mavutil.mavlink.MAVLINK_MSG_ID_SET_MODE, retry=3)
 
-        if manual:
+        if ack:
             # https://mavlink.io/en/messages/common.html
             # Arm
-            master.arducopter_arm()
-            self.armed = get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
+            self.master.arducopter_arm()
+            self.armed = self.get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, retry=3)
             if self.armed:
                 log.info("Arming success.")
             else:
                 log.info("Arming failed")
         else:
-            log.info("Arming failed")
+            log.info("Manual mode failed")
 
 
 
-    def disarm():
-        self.armed = master.arducopter_disarm()
-        self.armed = not get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
+    def disarm(self):
+        self.armed = self.master.arducopter_disarm()
+        self.armed = not self.get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, retry=3)
 
         if not self.armed:
             log.info("Disarming success.")
         else:
             log.warning("Disarming failed")
 
-    def get_ack(cmd):
-        # Wait for ACK command
-        try:
-            ack_msg = master.recv_match(type='COMMAND_ACK', blocking=True).to_dict()
-            if ack_msg["command"] = cmd and ack_msg['result'] == 0:
-                return True
-            else:
-                log.debug(mavutil.mavlink.enums['MAV_RESULT'][ack_msg['result']].description)
+    def get_ack(self, cmd, retry=1):
 
-        except KeyError as msg:
-            log.error("Packet received has no [%s] key", msg)
+        for i in range(retry):
+            # Wait for ACK command
+            try:
+                ack_msg = self.master.recv_match(type='COMMAND_ACK', blocking=True).to_dict()
+                if ack_msg["command"] == cmd and ack_msg['result'] == 0:
+                    return True
+                else:
+                    log.debug(mavutil.mavlink.enums['MAV_RESULT'][ack_msg['result']].description)
 
-    def send_cmd(pitch, yaw):
+            except KeyError as msg:
+                log.debug("Packet received has no [%s] key", msg)
+
+    def send_cmd(self, pitch, yaw):
         # https://mavlink.io/en/messages/common.html#MANUAL_CONTROL
         # Warning: Because of some legacy workaround, z will work between [0-1000]
         # where 0 is full reverse, 500 is no output and 1000 is full throttle.
         # x,y and r will be between [-1000 and 1000].
-        master.mav.manual_control_send( master.target_system,
+        self.master.mav.manual_control_send( self.master.target_system,
                                         pitch,
                                         0,
                                         500,
                                         yaw,
                                         0)
 
-    def get_feedback():
-        global heartbeat
+    def get_feedback(self):
         try:
-            message = master.recv_match(blocking=True, timeout=1).to_dict()
+            message = self.master.recv_match(blocking=True, timeout=1).to_dict()
             if message['mavpackettype'] == 'HEARTBEAT':
                 if message['system_status'] == 3:
                     self.armed = False
-                    log.info("Pixhawk ready, waiting to be self.armed")
+                    log.info("Pixhawk ready, waiting to be armed")
 
                 if message['system_status'] == 4:
                     self.armed = True
 
                 else:
                     self.armed = False
-                    log.error("Pixhawk automatically disarmed. Unknown reason")
 
                 log.debug(mavutil.mavlink.enums['MAV_STATE'][message['system_status']].description)
-                heartbeat += 1
+                self.heartbeat += 1
 
             log.debug(message)
 
         except KeyError as msg:
             log.error("Packet received has no [%s] key", msg)
         # Request parameter
-        # master.mav.param_request_list_send(
-        #     master.target_system, master.target_component,
+        # self.master.mav.param_request_list_send(
+        #     self.master.target_system, self.master.target_component,
         # )
 
         # while(1):
-        #     message = master.recv_match().to_dict()
+        #     message = self.master.recv_match().to_dict()
         #     log.debug(message)
         #     time.sleep(0.01)
         # # log.debug('name: %s value:%d', message['param_id'], message['param_value'])
@@ -120,12 +120,12 @@ class Pixhawk:
 
 
 if __name__ == "__main__":
-    target = pixhawk(DEVICE, BAUD)
+    target = Pixhawk(DEVICE, BAUD)
     target.arm()
     for i in range(5):
         target.send_cmd(200,0)
         target.get_feedback()
         time.sleep(1)
 
-    disarm()
+    target.disarm()
 

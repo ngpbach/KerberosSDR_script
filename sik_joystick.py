@@ -28,7 +28,7 @@ class Timer:
 
 if __name__ == "__main__":
     target = Pixhawk(DEVICE, BAUD)
-    feedback_timer = Timer(1)
+    feedback_timer = Timer(3)
 
     while(1):
         joy.joystick_update()
@@ -56,4 +56,4 @@ if __name__ == "__main__":
         if feedback_timer.check():
             target.get_feedback()
 
-        time.sleep(0.2)
+        time.sleep(0.1)
