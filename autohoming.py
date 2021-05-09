@@ -70,7 +70,7 @@ class RadioCompass:
     """ Convenient class for getting radio compass data from UDP packet """
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_KERB):
         self.bearing = None
-        self.strength = 0
+        self.power = 0
         self.confidence = 0
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
@@ -79,7 +79,7 @@ class RadioCompass:
     
     def reset(self):
         self.bearing = None
-        self.strength = 0
+        self.power = 0
         self.confidence = 0
 
     def update(self):
@@ -87,10 +87,10 @@ class RadioCompass:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             # log.info(message)
             packet = json.loads(message.decode())
-            self.strength = packet["strength"]
+            self.power = packet["power"]
             self.confidence = packet["confidence"]
 
-            if self.strength > 5 and self.confidence > 1:
+            if self.power > 5 and self.confidence > 1:
                 self.bearing = packet["bearing"]
                 if self.bearing > 180:
                     self.bearing = -(360 - self.bearing)

@@ -32,6 +32,8 @@ for i in range(max_tries):     # try 10 times
         time.sleep(1)
 
 doa = driver.find_element_by_id("doa")
+pwr = driver.find_element_by_id("pwr")
+conf = driver.find_element_by_id("conf")
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5001
@@ -45,11 +47,13 @@ print("Radio compass started")
 
 while(True):
     bearing = re.findall(r'\d+', doa.text)[0]
+    power = re.findall(r'\d+', pwr.text)[0]
+    confidence = re.findall(r'\d+', conf.text)[0]
     packet['bearing'] = int(bearing) 
-    packet['strength'] = 10
-    packet['confidence'] = 5
+    packet['power'] = int(power)
+    packet['confidence'] = int(confidence)
     message = json.dumps(packet)
-    log.debug(message)           
+    log.debug(message)
     sock.sendto(message.encode(), (UDP_IP, UDP_PORT))
     time.sleep(1)
 
