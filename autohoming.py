@@ -145,21 +145,28 @@ def compass_thread():
     while True:
         compass.update()
 
-def telem_thread():
+def relay_thread():
     while True:
         telem.update()
         time.sleep(1)
 
+def telem_thread():
+    while True:
+        target.get_feedback()
+        time.sleep(0.1)
+
+
 if __name__ == "__main__":
     joystick_task = threading.Thread(target=joystick_thread)
     compass_task = threading.Thread(target=compass_thread)
+    relay_task = threading.Thread(target=relay_thread)
     telem_task = threading.Thread(target=telem_thread)
     joystick_task.start()
     compass_task.start()
+    relay_task.start()
     telem_task.start()
 
     target = Pixhawk(DEVICE, BAUD)
-    feedback_timer = Timer(1)
     while(1):
         js_active = joy.axes[2] > 0         # hold down LT button to use joystick
         if js_active:
@@ -190,7 +197,5 @@ if __name__ == "__main__":
             
             log.info("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, compass.bearing))
 
-        if feedback_timer.check():
-            target.get_feedback()
             
         time.sleep(0.1)
