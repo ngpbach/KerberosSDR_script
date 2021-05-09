@@ -1,4 +1,4 @@
-
+#!/bin/bash
 # Kill any previous instance
 sudo pkill -f relayserver.py
 sudo pkill -f autohoming.py
