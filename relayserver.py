@@ -88,16 +88,13 @@ class RelayServer:
                     packet["cmd"] = "sync"
                     message = (json.dumps(packet) + '\n')
                     self.ser.write(message.encode())    # endline is important for framing
-                    # subprocess.run(cmd_start_kerberos, preexec_fn=demote(1000), shell=True)
-                    # with Popen(cmd_start_kerberos, preexec_fn=demote(1000), shell=True, stdout=PIPE, bufsize=1) as sp:
-                    #     for line in sp.stdout:
-                    #         log.debug(line)
                     process = Popen(cmd_start_kerberos, preexec_fn=demote(1000), stdout=PIPE, stderr=PIPE, bufsize=1)
 
                     while True:
                         output = process.stdout.readline()
                         if output:
                             self.ser.write(output)
+                            log.info(output)
                         else:
                             break
 
