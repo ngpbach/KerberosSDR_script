@@ -35,13 +35,13 @@ doa = driver.find_element_by_id("doa")
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5001
-log.info("Sending bearing value through UDP...")
-log.info("UDP target IP: %s" % UDP_IP)
-log.info("UDP target port: %s" % UDP_PORT)
+print("Sending bearing value through UDP...")
+print("UDP target IP: %s" % UDP_IP)
+print("UDP target port: %s" % UDP_PORT)
 sock = socket.socket(socket.AF_INET, # Internet
                      socket.SOCK_DGRAM) # UDP
 packet = {}
-log.info("Radio compass started")
+print("Radio compass started")
 
 while(True):
     bearing = re.findall(r'\d+', doa.text)[0]
