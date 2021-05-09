@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import threading
 import time
 import sys
 from pymavlink import mavutil
@@ -14,13 +15,15 @@ BAUD = 115200
 class Pixhawk:
 
     def __init__(self, DEVICE, BAUD):
+        self.mutex = threading.Lock()
         self.armed = False
         self.heartbeat = 0
         self.master = mavutil.mavlink_connection(DEVICE, BAUD)
 
-    def arm(self):
         # Wait a heartbeat before sending commands
+        self.mutex.acquire()
         self.master.wait_heartbeat()
+        self.mutex.release()
 
         # Choose a mode
         mode = 'MANUAL'
@@ -29,30 +32,40 @@ class Pixhawk:
         mode_id = self.master.mode_mapping()[mode]
 
         # Set new mode
+        self.mutex.acquire()
         self.master.mav.set_mode_send(
             self.master.target_system,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             mode_id)
 
         ack = self.get_ack(mavutil.mavlink.MAVLINK_MSG_ID_SET_MODE, retry=3)
-
+        self.mutex.release()
         if ack:
-            # https://mavlink.io/en/messages/common.html
-            # Arm
-            self.master.arducopter_arm()
-            self.armed = self.get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, retry=3)
-            if self.armed:
-                log.info("Arming success.")
-            else:
-                log.info("Arming failed")
+            log.info("Manual mode success")
         else:
             log.info("Manual mode failed")
+
+    def arm(self):
+
+        # https://mavlink.io/en/messages/common.html
+        # Arm
+        self.mutex.acquire()
+        self.master.arducopter_arm()
+        self.armed = self.get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, retry=3)
+        self.mutex.release()
+
+        if self.armed:
+            log.info("Arming success.")
+        else:
+            log.info("Arming failed")
 
 
 
     def disarm(self):
+        self.mutex.acquire()
         self.armed = self.master.arducopter_disarm()
         self.armed = not self.get_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, retry=3)
+        self.mutex.release()
 
         if not self.armed:
             log.info("Disarming success.")
@@ -60,18 +73,19 @@ class Pixhawk:
             log.warning("Disarming failed")
 
     def get_ack(self, cmd, retry=1):
+        try:
+            for i in range(retry):
+                # Wait for ACK command
+                    ack_msg = self.master.recv_match(type='COMMAND_ACK', blocking=True).to_dict()
+                    if ack_msg["command"] == cmd and ack_msg['result'] == 0:
+                        return True
+                    else:
+                        log.debug(mavutil.mavlink.enums['MAV_RESULT'][ack_msg['result']].description)
 
-        for i in range(retry):
-            # Wait for ACK command
-            try:
-                ack_msg = self.master.recv_match(type='COMMAND_ACK', blocking=True).to_dict()
-                if ack_msg["command"] == cmd and ack_msg['result'] == 0:
-                    return True
-                else:
-                    log.debug(mavutil.mavlink.enums['MAV_RESULT'][ack_msg['result']].description)
+        except KeyError as msg:
+            log.debug("Packet received has no [%s] key", msg)
 
-            except KeyError as msg:
-                log.debug("Packet received has no [%s] key", msg)
+        return False
 
     def send_cmd(self, pitch, yaw):
         # https://mavlink.io/en/messages/common.html#MANUAL_CONTROL
@@ -87,7 +101,8 @@ class Pixhawk:
 
     def get_feedback(self):
         try:
-            message = self.master.recv_match(blocking=True, timeout=1).to_dict()
+            self.mutex.acquire()
+            message = self.master.recv_match(blocking=True, timeout=5).to_dict()
             if message['mavpackettype'] == 'HEARTBEAT':
                 if message['system_status'] == 3:
                     self.armed = False
@@ -106,6 +121,10 @@ class Pixhawk:
 
         except KeyError as msg:
             log.error("Packet received has no [%s] key", msg)
+        except AttributeError as msg:
+            log.error(msg)
+        finally:
+            self.mutex.release()
         # Request parameter
         # self.master.mav.param_request_list_send(
         #     self.master.target_system, self.master.target_component,

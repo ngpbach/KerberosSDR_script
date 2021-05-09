@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import time
+import threading
 try:
     import joystick as joy
 except Exception as msg:
@@ -13,22 +14,15 @@ log.basicConfig(format='[%(levelname)s][%(asctime)s]%(message)s', level=log.DEBU
 DEVICE = "/dev/serial/by-id/usb-Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_01E97D63-if00-port0"
 BAUD = 57200
 
-class Timer:
-    def __init__(self, duration):
-        self.duration = duration
-        self.start = time.time()
-    
-    def check(self):
-        elapsed = time.time() - self.start
-        if elapsed > self.duration:
-            self.start = time.time()
-            return True
-
-        return False
+def telem_thread():
+    while True:
+        target.get_feedback()
+        time.sleep(0.1)
 
 if __name__ == "__main__":
     target = Pixhawk(DEVICE, BAUD)
-    feedback_timer = Timer(3)
+    telem_task = threading.Thread(target=telem_thread)
+    telem_task.start()
 
     while(1):
         joy.joystick_update()
@@ -52,8 +46,5 @@ if __name__ == "__main__":
 
             if disarm:   # press B to disarm
                 target.disarm()
-
-        if feedback_timer.check():
-            target.get_feedback()
 
         time.sleep(0.1)
