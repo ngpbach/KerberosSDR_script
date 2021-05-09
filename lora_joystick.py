@@ -19,7 +19,7 @@ except Exception as msg:
 
 """ LORA serial settings """
 DEVICE = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AB0LNG4V-if00-port0"       # requires platformio UDEV
-BAUD = 9600    # baud of LORA UART
+BAUD = 115200    # baud of LORA UART
 # DEVICE = "./pttyin"
 
 try:
