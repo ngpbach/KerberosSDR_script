@@ -107,6 +107,7 @@ class RadioCompass:
             log.error("Packet received has no [%s] key", msg)
 
 
+target = Pixhawk(DEVICE, BAUD)
 class Telemetry:
     """ Convenient class for sending telemetry data to ground station through relay server """
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_RELAY):
@@ -167,19 +168,19 @@ if __name__ == "__main__":
             yaw = int(-joy.axes[0]*1000)    # left stick left-right for yaw
             pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
 
-            if arm:
+            if arm and not target.armed:
                 if (pitch == 0 and yaw == 0):          
                     target.arm()
                 else:
                     log.info("Joystick Pitch and Yaw must be neutral for arming")  
 
-            if disarm:
+            if disarm and target.armed:
                 target.disarm()
 
             if target.armed:
                 target.send_cmd(pitch, yaw)
 
-            log.debug("Using joystick control\n Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, target.armed, target.heartbeat))
+            log.info("Using joystick control\n Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, target.armed, target.heartbeat))
 
         else:
             pitch, yaw = calculate_effort(compass.bearing)
@@ -187,7 +188,7 @@ if __name__ == "__main__":
             if (target.armed):
                 target.send_cmd(pitch, yaw)
             
-            log.debug("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, compass.bearing))
+            log.info("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, compass.bearing))
 
         if feedback_timer.check():
             target.get_feedback()

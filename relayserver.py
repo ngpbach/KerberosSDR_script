@@ -4,6 +4,9 @@ Act as relay server for the pi to compile and sort serial packet and send throug
 Swith to Pi serial console mode when commanded to
 """
 import subprocess
+from subprocess import PIPE, Popen
+
+import os
 import time
 import threading
 import atexit
@@ -17,6 +20,8 @@ log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', 
 
 cmd_start_console = 'sudo stty -F /dev/serial0 9600 && sudo systemctl start serial-getty@serial0.service'            # start the serial console when this program exit
 cmd_stop_console = 'sudo systemctl stop serial-getty@serial0.service'            # stop the serial console when this program start
+cmd_start_kerberos = '/home/pi/Desktop/kerberos_scripts/start_kerberos_doa.sh'      # start the kerberos syncing procedure and then start DOA server
+
 subprocess.run(cmd_stop_console, shell=True)
 log.info("Relay server started. Serial console mode disable")
 
@@ -38,11 +43,17 @@ BAUD = 9600    # baud of LORA UART
 DEVICE = "/dev/serial0"
 # DEVICE = "./pttyout"
 
+def demote(user_uid):
+   def result():
+      os.setuid(user_uid)
+   return result
+
 class RelayServer:
     """ Convenient class for forwarding JSON packet to the appropriate port """
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_RELAY):
+        self.idle = threading.Event()       # the LORA module corrupt message a lot if sending & receiving at the same time. Use Event to cease sending telem if start receiving command, and start sending telem once no longer receiving command
         try:
-            self.ser = serial.Serial(DEVICE, BAUD, timeout=5)
+            self.ser = serial.Serial(DEVICE, BAUD, timeout=1)
             time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
             self.ser.reset_input_buffer()
         except serial.SerialException as msg:
@@ -58,49 +69,80 @@ class RelayServer:
         try:
             message = self.ser.readline()
             if not message:
-                log.error("Serial read timeout")
+                self.idle.set()
+                log.debug("Idle: Serial read timeout")
                 return
 
-            #log.debug(message)                
+            else:
+                self.idle.clear()
+
+            log.debug(message)
             packet = json.loads(message.decode())
 
             if packet["type"] == "js":
                     self.sock.sendto(message, (LOCALHOST, PORT_JS))
                 
             elif packet["type"] == "cmd":
-                if packet["cmd"] == "exit":
-                        packet["type"] = "ack"
-                        packet["cmd"] = "exit"
-                        message = (json.dumps(packet) + '\n')
-                        self.ser.write(message.encode())    # endline is important for framing
-                        time.sleep(1)
-                        exit(0)
+                if packet["cmd"] == "sync":
+                    packet["type"] = "ack"
+                    packet["cmd"] = "sync"
+                    message = (json.dumps(packet) + '\n')
+                    self.ser.write(message.encode())    # endline is important for framing
+                    # subprocess.run(cmd_start_kerberos, preexec_fn=demote(1000), shell=True)
+                    # with Popen(cmd_start_kerberos, preexec_fn=demote(1000), shell=True, stdout=PIPE, bufsize=1) as sp:
+                    #     for line in sp.stdout:
+                    #         log.debug(line)
+                    process = Popen(cmd_start_kerberos, preexec_fn=demote(1000), stdout=PIPE, stderr=PIPE, bufsize=1)
 
-            
-        except socket.timeout:
-            log.debug("Socket timed out waiting for msg")
+                    while True:
+                        output = process.stdout.readline()
+                        if output:
+                            self.ser.write(output)
+                        else:
+                            break
+
+                    time.sleep(1)
+
+
+                if packet["cmd"] == "exit":
+                    packet["type"] = "ack"
+                    packet["cmd"] = "exit"
+                    message = (json.dumps(packet) + '\n')
+                    self.ser.write(message.encode())    # endline is important for framing
+                    time.sleep(1)
+                    exit(0)
+                
+                self.ser.reset_input_buffer()
+
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
         except KeyError as msg:
             log.error("Packet received has no [%s] key", msg)
 
     def udp_to_serial(self):
+        self.idle.wait()
         try:
-            message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-            # log.debug(message)                
-            packet = json.loads(message.decode())
+            message = None
+            # Empty old packets in buffer
+            while True:
+                try:
+                    message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
+                except:
+                    break
+            
+            if message:
+                log.debug(message)
+                packet = json.loads(message.decode())
 
-            if packet["type"] == "telem":
-                self.ser.write(message + b'\n')    # endline is important for framing
-                                
-        except socket.timeout:
-            log.debug("Socket timed out waiting for msg")
+                if packet["type"] == "telem":
+                    self.ser.write(message + b'\n')    # endline is important for framing
+
         except UnicodeDecodeError:
             log.error("Gargabe characters received: %s", message)
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
         except KeyError as msg:
-           log.error("Packet received has no [%s] key", msg)
+            log.error("Packet received has no [%s] key", msg)
 
 
 server = RelayServer()
@@ -108,7 +150,6 @@ server = RelayServer()
 def serial_to_udp_thread():
     while True:
         server.serial_to_udp()
-        time.sleep(0.1)
 
 def udp_to_serial_thread():
     while True:
