@@ -94,7 +94,7 @@ class RelayServer:
                         output = process.stdout.readline()
                         if output:
                             self.ser.write(output)
-                            log.info(output)
+                            log.info(output.decode())
                         else:
                             break
 
