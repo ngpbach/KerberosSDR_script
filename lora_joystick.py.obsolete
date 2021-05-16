@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+
+import time
+import random
+import signal
+import atexit
+import threading
+import serial
+import numpy as np
+import json
+import PySimpleGUI as sg
+import logging as log
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
+try:
+    import joystick as joy
+except Exception as msg:
+    raise
+
+""" LORA serial settings """
+DEVICE = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AB0LNG4V-if00-port0"       # requires platformio UDEV
+BAUD = 115200    # baud of LORA UART
+# DEVICE = "./pttyin"
+
+try:
+    ser = serial.Serial(DEVICE, BAUD, timeout=0.1)
+    time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
+    ser.reset_input_buffer()
+except serial.SerialException as msg:
+    log.error(msg)
+    raise    
+
+def terminate():
+    ser.close()
+    exit()
+
+atexit.register(terminate)
+
+def handler(signal_received, frame):
+    terminate()
+
+# Tell Python to run the handler() function when SIGINT is recieved
+signal.signal(signal.SIGINT, handler) # ctlr + c
+signal.signal(signal.SIGTSTP, handler) # ctlr + z
+     
+WHOAMI = "gcs"
+TARGET = "pi"
+
+def send_command(cmd):
+    try:
+        tries = 5
+        packet = {}
+        # Reducing message size to to low serial bandwidth
+        # packet["origin"] = WHOAMI
+        # packet["target"] = TARGET
+        packet["type"] = "cmd"
+        packet["cmd"] = cmd
+        message = json.dumps(packet) + '\n'
+        # log.debug("Sending: %s", message)
+        read_mutex.acquire()
+        ser.write(message.encode())
+        time.sleep(1)
+        for i in range(tries):
+            packet = get_feedback("ack")
+            if packet is not None:
+                break
+        read_mutex.release()
+
+        if packet and packet.get("cmd") == cmd:
+            return True
+        else:
+            return False
+
+    except TypeError as msg:
+        log.error(msg)
+
+def send_joystick(axes, btns):
+    try:
+        packet = {}
+        # Reducing message size low serial bandwidth
+        # packet["origin"] = WHOAMI
+        # packet["target"] = TARGET
+        packet["type"] = "js"
+        packet["ax"] = [round(num, 3) for num in axes[0:3]]      # only need 3 axes, with 3 decimal places
+        packet["bt"] = btns[0:2]      # only need 2 buttons
+        message = json.dumps(packet) + '\n'
+        log.debug("Sending: %s", message)
+        ser.write(message.encode())
+    except TypeError as msg:
+        log.error(msg)
+
+read_mutex = threading.Lock()
+buffer = ''
+def read_serial():
+    global buffer
+    if ser.in_waiting > 0:
+        message = ser.readline().decode()
+        if not message or message[-1] != '\n':
+            buffer += message
+            return
+        else:
+            message = buffer + message
+            buffer = ''
+            return message
+
+def get_feedback(type="telem"):
+    message = read_serial()
+    if message:
+        # log.debug(message)
+        try:
+            packet = json.loads(message)
+            if packet.get("type") == type:
+                return packet
+    
+
+        except UnicodeDecodeError:
+            log.error("Gargabe characters received: %s", message)
+        except json.JSONDecodeError:
+            log.info(message)
+
+
+if __name__ == "__main__":
+    log.info("\n\tHold LT+RT and press A to arm.\n\tHold LT+RT and use left joystick to control.\n\tHold LT+RT and press B to disarm.\n\tPress Start switch Companion Pi Lora Serial to Shell mode")
+    
+    while True:
+        joy.joystick_update()
+
+        if (joy.btns[7]):
+            ack = send_command("sync")
+            if ack:
+                log.info("Kerberos Sync procedure started")
+            else:
+                log.warning("Sync command was likely not received")
+
+        # elif (joy.btns[7]):
+
+        if (joy.axes[5] > 0):
+            send_joystick(joy.axes, joy.btns)
+            time.sleep(0.2)
+
+        else:
+            packet = get_feedback()
+            if packet:
+                log.info(packet)
+            time.sleep(1)
