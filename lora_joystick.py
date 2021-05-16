@@ -66,7 +66,7 @@ def send_command(cmd):
                 break
         read_mutex.release()
 
-        if packet and packet["cmd"] == cmd:
+        if packet and packet.get("cmd") == cmd:
             return True
         else:
             return False
@@ -109,7 +109,7 @@ def get_feedback(type="telem"):
         # log.debug(message)
         try:
             packet = json.loads(message)
-            if packet["type"] == type:
+            if packet.get("type") == type:
                 return packet
     
 
@@ -117,8 +117,6 @@ def get_feedback(type="telem"):
             log.error("Gargabe characters received: %s", message)
         except json.JSONDecodeError:
             log.info(message)
-        except KeyError as msg:
-            log.error("Packet received has no [%s] key", msg)
 
 
 if __name__ == "__main__":

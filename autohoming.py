@@ -18,7 +18,13 @@ BAUD = 115200
 PORT_RELAY = 5000
 PORT_KERB = 5001
 PORT_JS = 5002
+PORT_PID = 5003
 LOCALHOST = "127.0.0.1"
+
+
+""" Radio compass settings """
+STRENGTH_MIN = 10        # minimum strength to be considered valid
+CONFIDENCE_MIN = 5      # minimum confidence to be considered valid
 
 """ PID settings """
 SETPOINT_TOLERANCE = 10             # angle in degrees, within which the ship heading can be considered "good enough" for proceeding toward the beacon
@@ -60,9 +66,11 @@ class Joystick:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             #log.debug(message)
             packet = json.loads(message.decode())
-            if packet["type"] == "js":
-                self.axes = packet["ax"]
-                self.btns = packet["bt"]
+            if packet.get("type") == "js":
+                self.axes = packet.get("ax", [0]*6)
+                self.btns = packet.get("bt"[0]*6)
+            else:
+                self.reset()
             
         except socket.timeout:
             self.reset()
@@ -93,11 +101,11 @@ class RadioCompass:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             # log.info(message)
             packet = json.loads(message.decode())
-            self.strength = packet["strength"]
-            self.confidence = packet["confidence"]
+            self.strength = packet.get("strength", 0)
+            self.confidence = packet.get("confidence", 0)
 
-            if self.strength > 5 and self.confidence > 1:
-                self.bearing = packet["bearing"]
+            if self.strength > STRENGTH_MIN and self.confidence > CONFIDENCE_MIN:
+                self.bearing = packet.get("bearing", None)
                 if self.bearing > 180:
                     self.bearing = -(360 - self.bearing)
 
@@ -109,18 +117,15 @@ class RadioCompass:
             log.debug("Socket timed out waiting for Radio Compass msg")
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
-        except KeyError as msg:
-            log.error("Packet received has no [%s] key", msg)
 
 
-pixhawk = Pixhawk(DEVICE, BAUD)
 class Telemetry:
-    """ Convenient class for sending telemetry data to ground station through relay server """
+    """ Convenient class for sending telemetry data to ground station through UDP"""
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_RELAY):
         self.sock = socket.socket(socket.AF_INET,   # Internet
                                 socket.SOCK_DGRAM)  # UDP
     
-    def update(self):
+    def update(self, pixhawk, compass):
         packet = {}
         packet["type"] = "telem"
         packet["bearing"] = compass.bearing
@@ -130,9 +135,36 @@ class Telemetry:
         # log.debug(message)            
         self.sock.sendto(message.encode(), (LOCALHOST, PORT_RELAY))
 
+
+class PIDtune:
+    """ Convenient class for tuning PID through UDP """
+    def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_PID):
+        self.sock = socket.socket(socket.AF_INET, # Internet
+                                    socket.SOCK_DGRAM) # UDP
+        self.sock.bind((UDP_IP, UDP_PORT))
+        self.sock.settimeout(None)
+        
+    def update(self, pid):
+        try:
+            message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
+            # log.info(message)
+            packet = json.loads(message.decode())
+
+            if packet.get("type") == "tune":
+                pid.Kp = packet.get('Kp', 0)
+                pid.Ki = packet.get('Ki', 0)
+                pid.Kd = packet.get('Kd', 0)
+
+        except json.JSONDecodeError:
+            log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
+
+
+pixhawk = Pixhawk(DEVICE, BAUD)
 joy = Joystick()
 compass = RadioCompass()
 telem = Telemetry()
+tune = PIDtune()
+yaw_pid = PID(Kp=0.3, Ki=0, Kd=1, setpoint=0, sample_time=0.5, output_limits=(-1,1))
 
 def joystick_thread():
     while True:
@@ -144,7 +176,7 @@ def compass_thread():
 
 def relay_thread():
     while True:
-        telem.update()
+        telem.update(pixhawk, compass)
         time.sleep(1)
 
 def telem_thread():
@@ -152,18 +184,22 @@ def telem_thread():
         pixhawk.get_feedback()
         time.sleep(0.1)
 
+def pidtune_thread():
+    while True:
+        tune.update(yaw_pid)
 
 if __name__ == "__main__":
     joystick_task = threading.Thread(target=joystick_thread)
     compass_task = threading.Thread(target=compass_thread)
     relay_task = threading.Thread(target=relay_thread)
     telem_task = threading.Thread(target=telem_thread)
+    pidtune_task = threading.Thread(target=pidtune_thread)
     joystick_task.start()
     compass_task.start()
     relay_task.start()
     telem_task.start()
+    pidtune_task.start()
 
-    yaw_pid = PID(Kp=0.3, Ki=0, Kd=1, setpoint=0, sample_time=0.5, output_limits=(-1,1))
     setpoint_timer = Timer(SETPOINT_REACHED_WAIT_PERIOD)
     while(1):
         js_active = joy.axes[2] > 0         # hold down LT button to use joystick

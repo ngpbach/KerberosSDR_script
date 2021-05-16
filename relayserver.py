@@ -70,7 +70,7 @@ class RelayServer:
             message = self.ser.readline()
             if not message:
                 self.idle.set()
-                log.debug("Idle: Serial read timeout")
+                # log.debug("Idle: Serial read timeout")
                 return
 
             else:
@@ -79,11 +79,14 @@ class RelayServer:
             log.debug(message)
             packet = json.loads(message.decode())
 
-            if packet["type"] == "js":
-                    self.sock.sendto(message, (LOCALHOST, PORT_JS))
+            if packet.get("type") == "js":
+                self.sock.sendto(message, (LOCALHOST, PORT_JS))
+
+            if packet.get("type") == "tune":                
+                self.sock.sendto(message, (LOCALHOST, PORT_JS))
                 
-            elif packet["type"] == "cmd":
-                if packet["cmd"] == "sync":
+            elif packet.get("type") == "cmd":
+                if packet.get("cmd") == "sync":
                     packet["type"] = "ack"
                     packet["cmd"] = "sync"
                     message = (json.dumps(packet) + '\n')
@@ -100,7 +103,7 @@ class RelayServer:
 
                     time.sleep(1)
 
-                if packet["cmd"] == "exit":
+                if packet.get("cmd") == "exit":
                     packet["type"] = "ack"
                     packet["cmd"] = "exit"
                     message = (json.dumps(packet) + '\n')
@@ -112,8 +115,6 @@ class RelayServer:
 
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
-        except KeyError as msg:
-            log.error("Packet received has no [%s] key", msg)
 
     def udp_to_serial(self):
         self.idle.wait()
@@ -130,15 +131,13 @@ class RelayServer:
                 log.debug(message)
                 packet = json.loads(message.decode())
 
-                if packet["type"] == "telem":
+                if packet.get("type") == "telem":
                     self.ser.write(message + b'\n')    # endline is important for framing
 
         except UnicodeDecodeError:
             log.error("Gargabe characters received: %s", message)
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
-        except KeyError as msg:
-            log.error("Packet received has no [%s] key", msg)
 
 
 server = RelayServer()
