@@ -4,6 +4,7 @@ import time
 import threading
 import socket
 import json
+from simple_pid import PID
 from pixhawk import Pixhawk     # pixhawk or nucleo
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
@@ -13,27 +14,32 @@ log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', 
 DEVICE = "/dev/serial/by-id/usb-ArduPilot_Pixhawk1_360027001051303239353934-if00"
 BAUD = 115200
 
-
+""" UDP ports settings"""
 PORT_RELAY = 5000
 PORT_KERB = 5001
 PORT_JS = 5002
 LOCALHOST = "127.0.0.1"
 
+""" PID settings """
+SETPOINT_TOLERANCE = 10             # angle in degrees, within which the ship heading can be considered "good enough" for proceeding toward the beacon
+SETPOINT_REACHED_WAIT_PERIOD = 3    # time in seconds before yaw angle is considered stable and ship is ready to move toward the beacon
+FORWARD_SPEED = 200                 # speed (max 1000) the ship move forward
+
 class Timer:
+    """ Convenient class for executing non timing-critical action periodically """
     def __init__(self, duration):
         self.duration = duration
-        self.start = time.time()
+        self.start_time = time.time()
 
-    def reset(self):
-        self.start = time.time()
-    
-    def check(self):
-        elapsed = time.time() - self.start
-        if elapsed > self.duration:
+    def __call__(self):
+        if time.time() - self.start_time > self.duration:
             self.reset()
             return True
+        else:
+            return False
 
-        return False
+    def reset(self):
+        self.start_time = time.time()
 
 class Joystick:
     """ Convenient class for getting joystick data from UDP packet """
@@ -107,7 +113,7 @@ class RadioCompass:
             log.error("Packet received has no [%s] key", msg)
 
 
-target = Pixhawk(DEVICE, BAUD)
+pixhawk = Pixhawk(DEVICE, BAUD)
 class Telemetry:
     """ Convenient class for sending telemetry data to ground station through relay server """
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_RELAY):
@@ -118,8 +124,8 @@ class Telemetry:
         packet = {}
         packet["type"] = "telem"
         packet["bearing"] = compass.bearing
-        packet["arm"] = target.armed
-        packet["heartbeat"] = target.heartbeat
+        packet["arm"] = pixhawk.armed
+        packet["heartbeat"] = pixhawk.heartbeat
         message = json.dumps(packet)
         # log.debug(message)            
         self.sock.sendto(message.encode(), (LOCALHOST, PORT_RELAY))
@@ -127,15 +133,6 @@ class Telemetry:
 joy = Joystick()
 compass = RadioCompass()
 telem = Telemetry()
-
-def calculate_effort(bearing):
-    if not bearing:             # no bearing received or bearing invalid
-        pitch = 0
-        yaw = 0           
-    else:
-        pitch = 0
-        yaw = bearing * 2       # turning effort proportional to bearing
-    return pitch, yaw
 
 def joystick_thread():
     while True:
@@ -152,7 +149,7 @@ def relay_thread():
 
 def telem_thread():
     while True:
-        target.get_feedback()
+        pixhawk.get_feedback()
         time.sleep(0.1)
 
 
@@ -166,36 +163,49 @@ if __name__ == "__main__":
     relay_task.start()
     telem_task.start()
 
-    target = Pixhawk(DEVICE, BAUD)
+    yaw_pid = PID(Kp=0.3, Ki=0, Kd=1, setpoint=0, sample_time=0.5, output_limits=(-1,1))
+    setpoint_timer = Timer(SETPOINT_REACHED_WAIT_PERIOD)
     while(1):
         js_active = joy.axes[2] > 0         # hold down LT button to use joystick
         if js_active:
-            arm = joy.btns[0]               # press A to arm
-            disarm = joy.btns[1]            # press B to disarm
+            arming = joy.btns[0]               # press A to arm
+            disarming = joy.btns[1]            # press B to disarm
             yaw = int(-joy.axes[0]*1000)    # left stick left-right for yaw
             pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
 
-            if arm and not target.armed:
+            if arming and not pixhawk.armed:
                 if (pitch == 0 and yaw == 0):          
-                    target.arm()
+                    pixhawk.arm()
                 else:
                     log.info("Joystick Pitch and Yaw must be neutral for arming")  
 
-            if disarm and target.armed:
-                target.disarm()
+            if disarming and pixhawk.armed:
+                pixhawk.disarm()
 
-            if target.armed:
-                target.send_cmd(pitch, yaw)
+            if pixhawk.armed:
+                pixhawk.send_cmd(pitch, yaw)
 
-            log.info("Using joystick control\n Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, target.armed, target.heartbeat))
+            log.info("Using joystick control\n Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, pixhawk.armed, pixhawk.heartbeat))
 
-        else:
-            pitch, yaw = calculate_effort(compass.bearing)
+        elif pixhawk.armed:
+            if compass.bearing:
+                yaw = -yaw_pid(compass.bearing/180) * 1000      # Calculate PID based on scaled feedback
 
-            if (target.armed):
-                target.send_cmd(pitch, yaw)
+                if compass.bearing > -SETPOINT_TOLERANCE and compass.bearing < SETPOINT_TOLERANCE:
+                    if setpoint_timer():                
+                        pitch = -FORWARD_SPEED
+
+                else:
+                    setpoint_timer.reset()
+                    pitch = 0
+
+            else:
+                yaw = 0
+                pitch = 0
+                yaw_pid.reset()
+
+            pixhawk.send_cmd(pitch, yaw)
             
-            log.info("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, target.armed, target.heartbeat, compass.bearing))
-
+            log.info("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
             
         time.sleep(0.1)

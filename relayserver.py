@@ -100,7 +100,6 @@ class RelayServer:
 
                     time.sleep(1)
 
-
                 if packet["cmd"] == "exit":
                     packet["type"] = "ack"
                     packet["cmd"] = "exit"

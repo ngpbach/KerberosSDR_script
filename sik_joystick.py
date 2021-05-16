@@ -16,11 +16,11 @@ BAUD = 57200
 
 def telem_thread():
     while True:
-        target.get_feedback()
-        time.sleep(0.1)
+        pixhawk.get_feedback()
+        time.sleep(1)
 
 if __name__ == "__main__":
-    target = Pixhawk(DEVICE, BAUD)
+    pixhawk = Pixhawk(DEVICE, BAUD)
     telem_task = threading.Thread(target=telem_thread)
     telem_task.start()
 
@@ -28,23 +28,21 @@ if __name__ == "__main__":
         joy.joystick_update()
         js_active = joy.axes[2] > 0     # hold down LT button to use joystick
         if js_active:
-            log.debug("Armed:%s", target.armed)
-            arm = joy.btns[0]
-            disarm = joy.btns[1]
+            arming = joy.btns[0]               # press A to arm
+            disarming = joy.btns[1]            # press B to disarm
             yaw = int(-joy.axes[0]*1000)    # left stick left-right for yaw
-            pitch = int(-joy.axes[1]*1000)  # left stick up-down for pitch
+            pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
 
-            if (target.armed):
-                target.send_cmd(pitch, yaw)
-                log.debug("sending {} {}".format(pitch,yaw))
-
-            if arm:      # press A to arm    
-                if (pitch == 0 and yaw == 0):
-                    target.arm()
+            if arming and not pixhawk.armed:
+                if (pitch == 0 and yaw == 0):          
+                    pixhawk.arm()
                 else:
-                    log.info("Joystick Pitch and Yaw must be neutral for arming")
+                    log.info("Joystick Pitch and Yaw must be neutral for arming")  
 
-            if disarm:   # press B to disarm
-                target.disarm()
+            if disarming and pixhawk.armed:
+                pixhawk.disarm()
+
+            if pixhawk.armed:
+                pixhawk.send_cmd(pitch, yaw)
 
         time.sleep(0.1)
