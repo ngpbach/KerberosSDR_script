@@ -55,7 +55,7 @@ class Joystick:
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(10)
+        self.sock.settimeout(1)
 
     def reset(self):
         self.axes = [0]*6
@@ -84,7 +84,7 @@ class RadioCompass:
     """ Convenient class for getting radio compass data from UDP packet """
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_KERB):
         self.bearing = None
-        self.strength = 0
+        self.power = 0
         self.confidence = 0
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
@@ -93,7 +93,7 @@ class RadioCompass:
     
     def reset(self):
         self.bearing = None
-        self.strength = 0
+        self.power = 0
         self.confidence = 0
 
     def update(self):
@@ -181,8 +181,8 @@ def relay_thread():
 
 def telem_thread():
     while True:
-        pixhawk.get_feedback()
-        time.sleep(0.1)
+        target.get_feedback()
+        time.sleep(1)
 
 def pidtune_thread():
     while True:

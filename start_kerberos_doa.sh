@@ -1,6 +1,10 @@
 #!/bin/bash
 
+# Kill any previous instance
 sudo pkill -f start_kerberos_doa.py
+sudo pkill -f chromium_browse
+sudo pkill -f radio_compass.py
+
 # copy pre-configured settings to kerberossdr foler (save some steps in configuration in python)
 cp $HOME/Desktop/kerberos_scripts/settings.json.immutable $HOME/Desktop/kerberossdr/settings.json
 
@@ -22,14 +26,12 @@ sleep 10
 # Use the python enviroment
 source $HOME/Desktop/kerberos_scripts/.venv/bin/activate
 
-# Kill any previous instance
-sudo pkill -f chromium_browse
-sudo pkill -f radio_compass.py
 
 # Now run sync procedure, then start the compass server
-cd $HOME/Desktop/kerberos_scripts && ./kerberos_sync.py
+cd $HOME/Desktop/kerberos_scripts && python3 -u ./kerberos_sync.py
+python3 -u ./radio_compass.py&
 
-./radio_compass.py &> /dev/null &
+echo "done"
 
 exit 0
 

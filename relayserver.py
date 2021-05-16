@@ -39,7 +39,7 @@ PORT_JS = 5002
 LOCALHOST = "127.0.0.1"
 
 """ Device specific settings """
-BAUD = 9600    # baud of LORA UART
+BAUD = 115200    # baud of LORA UART
 DEVICE = "/dev/serial0"
 # DEVICE = "./pttyout"
 
@@ -93,12 +93,10 @@ class RelayServer:
                     self.ser.write(message.encode())    # endline is important for framing
                     process = Popen(cmd_start_kerberos, preexec_fn=demote(1000), stdout=PIPE, stderr=PIPE, bufsize=1)
 
-                    while True:
-                        output = process.stdout.readline()
-                        if output:
-                            self.ser.write(output)
-                            log.info(output)
-                        else:
+                    for line in process.stdout:
+                        self.ser.write(line)
+                        log.info(line.decode())
+                        if "done" in line.decode():
                             break
 
                     time.sleep(1)

@@ -93,10 +93,10 @@ class Pixhawk:
         # where 0 is full reverse, 500 is no output and 1000 is full throttle.
         # x,y and r will be between [-1000 and 1000].
         self.master.mav.manual_control_send( self.master.target_system,
-                                        pitch,
+                                        -pitch,     # TODO: temporary fix
                                         0,
                                         500,
-                                        yaw,
+                                        -yaw,
                                         0)
 
     def get_feedback(self):
