@@ -12,6 +12,7 @@ import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
 
 SERVERIP = '127.0.0.1'
+BEARING_OFFSET = 45
 
 options = Options()
 options.headless = True
@@ -49,7 +50,7 @@ while(True):
     bearing = re.findall(r'\d+', doa.text)[0]
     power = re.findall(r'\d+', pwr.text)[0]
     confidence = re.findall(r'\d+', conf.text)[0]
-    packet['bearing'] = int(bearing) 
+    packet['bearing'] = int(bearing) - BEARING_OFFSET
     packet['power'] = int(power)
     packet['confidence'] = int(confidence)
     message = json.dumps(packet)

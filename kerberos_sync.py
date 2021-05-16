@@ -23,7 +23,7 @@ for i in range(max_tries):     # try 10 times
     try:
         driver.get("http://" + SERVERIP + ":8080/init")
         break
-    except ec.webdriverException as msg:
+    except ec.WebDriverException as msg:
         if i == max_tries-1:
             raise
         log.debug(msg)

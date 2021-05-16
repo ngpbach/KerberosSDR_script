@@ -43,7 +43,7 @@ class Joystick:
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(10)
+        self.sock.settimeout(1)
 
     def reset(self):
         self.axes = [0]*6
@@ -153,7 +153,7 @@ def relay_thread():
 def telem_thread():
     while True:
         target.get_feedback()
-        time.sleep(0.1)
+        time.sleep(1)
 
 
 if __name__ == "__main__":
