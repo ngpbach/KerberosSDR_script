@@ -67,8 +67,8 @@ class Joystick:
             #log.debug(message)
             packet = json.loads(message.decode())
             if packet.get("type") == "js":
-                self.axes = packet.get("ax", [0]*6)
-                self.btns = packet.get("bt"[0]*6)
+                self.axes = packet.get("ax",[0]*6)
+                self.btns = packet.get("bt",[0]*6)
             else:
                 self.reset()
             
@@ -181,7 +181,7 @@ def relay_thread():
 
 def telem_thread():
     while True:
-        target.get_feedback()
+        pixhawk.get_feedback()
         time.sleep(1)
 
 def pidtune_thread():
@@ -210,6 +210,7 @@ if __name__ == "__main__":
             pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
 
             if arming and not pixhawk.armed:
+                log.info("here")
                 if (pitch == 0 and yaw == 0):          
                     pixhawk.arm()
                 else:
@@ -221,7 +222,8 @@ if __name__ == "__main__":
             if pixhawk.armed:
                 pixhawk.send_cmd(pitch, yaw)
 
-            log.info("Using joystick control\n Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, pixhawk.armed, pixhawk.heartbeat))
+            log.info("Using joystick control")
+            log.info("Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, pixhawk.armed, pixhawk.heartbeat))
 
         elif pixhawk.armed:
             if compass.bearing:
@@ -242,6 +244,8 @@ if __name__ == "__main__":
 
             pixhawk.send_cmd(pitch, yaw)
             
-            log.info("Using radio homing control\n Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
+            log.info("Using radio homing control")
+            log.info("Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
+            log.info("PID params: {} {} {}".format(yaw_pid.Kp, yaw_pid.Ki, yaw_pid.Kd))
             
         time.sleep(0.1)

@@ -36,6 +36,7 @@ TARGET = "gcs"
 PORT_RELAY = 5000      # netcat link all serial stream to localhost on this UDP port
 PORT_KERB = 5001
 PORT_JS = 5002
+PORT_PID = 5003
 LOCALHOST = "127.0.0.1"
 
 """ Device specific settings """
@@ -83,7 +84,7 @@ class RelayServer:
                 self.sock.sendto(message, (LOCALHOST, PORT_JS))
 
             if packet.get("type") == "tune":                
-                self.sock.sendto(message, (LOCALHOST, PORT_JS))
+                self.sock.sendto(message, (LOCALHOST, PORT_PID))
                 
             elif packet.get("type") == "cmd":
                 if packet.get("cmd") == "sync":
