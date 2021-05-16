@@ -21,6 +21,7 @@ log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', 
 cmd_start_console = 'sudo stty -F /dev/serial0 9600 && sudo systemctl start serial-getty@serial0.service'            # start the serial console when this program exit
 cmd_stop_console = 'sudo systemctl stop serial-getty@serial0.service'            # stop the serial console when this program start
 cmd_start_kerberos = '/home/pi/Desktop/kerberos_scripts/start_kerberos_doa.sh'      # start the kerberos syncing procedure and then start DOA server
+cmd_restart = '/home/pi/Desktop/kerberos_scripts/start_control.sh'
 
 subprocess.run(cmd_stop_console, shell=True)
 log.info("Relay server started. Serial console mode disable")
@@ -36,7 +37,7 @@ TARGET = "gcs"
 PORT_RELAY = 5000      # netcat link all serial stream to localhost on this UDP port
 PORT_KERB = 5001
 PORT_JS = 5002
-PORT_PID = 5003
+PORT_CMD = 5003
 LOCALHOST = "127.0.0.1"
 
 """ Device specific settings """
@@ -65,6 +66,14 @@ class RelayServer:
                                 socket.SOCK_DGRAM)  # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
         self.sock.settimeout(0.1)
+
+    def send_ack(self, cmd):
+        packet={}
+        packet["type"] = "ack"
+        packet["cmd"] = cmd
+        reply = (json.dumps(packet) + '\n')
+        self.ser.write(reply.encode())    # endline is important for framing
+
     
     def serial_to_udp(self):
         try:
@@ -83,15 +92,18 @@ class RelayServer:
             if packet.get("type") == "js":
                 self.sock.sendto(message, (LOCALHOST, PORT_JS))
 
-            if packet.get("type") == "tune":                
-                self.sock.sendto(message, (LOCALHOST, PORT_PID))
-                
             elif packet.get("type") == "cmd":
-                if packet.get("cmd") == "sync":
-                    packet["type"] = "ack"
-                    packet["cmd"] = "sync"
-                    message = (json.dumps(packet) + '\n')
-                    self.ser.write(message.encode())    # endline is important for framing
+
+                if packet.get("cmd") == "arm":
+                    self.send_ack("arm")
+                    self.sock.sendto(message, (LOCALHOST, PORT_CMD))
+
+                elif packet.get("cmd") == "tune":
+                    self.send_ack("tune")
+                    self.sock.sendto(message, (LOCALHOST, PORT_CMD))
+
+                elif packet.get("cmd") == "sync":
+                    self.send_ack("sync")
                     process = Popen(cmd_start_kerberos, preexec_fn=demote(1000), stdout=PIPE, stderr=PIPE, bufsize=1)
 
                     for line in process.stdout:
@@ -102,13 +114,14 @@ class RelayServer:
 
                     time.sleep(1)
 
-                if packet.get("cmd") == "exit":
-                    packet["type"] = "ack"
-                    packet["cmd"] = "exit"
-                    message = (json.dumps(packet) + '\n')
-                    self.ser.write(message.encode())    # endline is important for framing
+                elif packet.get("cmd") == "exit":
+                    self.send_ack("exit")
                     time.sleep(1)
                     exit(0)
+
+                elif packet.get("cmd") == "restart":
+                    self.send_ack("restart")
+                    process = Popen(cmd_restart, preexec_fn=demote(1000), stdout=PIPE, stderr=PIPE, bufsize=1)
                 
                 self.ser.reset_input_buffer()
 
