@@ -78,6 +78,7 @@ class RelayServer:
     def serial_to_udp(self):
         try:
             message = self.ser.readline()
+            log.debug(message)
             if not message:
                 self.idle.set()
                 # log.debug("Idle: Serial read timeout")
@@ -85,14 +86,21 @@ class RelayServer:
 
             else:
                 self.idle.clear()
+                tries = 5
+                for i in range (tries):
+                    if message == b'\n':      # empty message to signal real messages coming next
+                        self.ser.write(b'\n')
+                        message = self.ser.readline()
+                    else:
+                        break
 
-            log.debug(message)
             packet = json.loads(message.decode())
 
             if packet.get("type") == "js":
                 self.sock.sendto(message, (LOCALHOST, PORT_JS))
 
             elif packet.get("type") == "cmd":
+                # time.sleep(0.1)     # wait a little before sending ack
 
                 if packet.get("cmd") == "arm":
                     self.send_ack("arm")
@@ -123,7 +131,7 @@ class RelayServer:
                     self.send_ack("restart")
                     process = Popen(cmd_restart, preexec_fn=demote(1000), stdout=PIPE, stderr=PIPE, bufsize=1)
                 
-                self.ser.reset_input_buffer()
+                # self.ser.reset_input_buffer()
 
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\n\tReceived msg: %s", message)
