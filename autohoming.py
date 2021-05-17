@@ -18,7 +18,7 @@ BAUD = 115200
 PORT_RELAY = 5000
 PORT_KERB = 5001
 PORT_JS = 5002
-PORT_PID = 5003
+PORT_CMD = 5003
 LOCALHOST = "127.0.0.1"
 
 
@@ -101,11 +101,11 @@ class RadioCompass:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             # log.info(message)
             packet = json.loads(message.decode())
-            self.strength = packet.get("strength", 0)
-            self.confidence = packet.get("confidence", 0)
+            self.strength = packet.get("strength") or 0
+            self.confidence = packet.get("confidence") or 0
 
             if self.strength > STRENGTH_MIN and self.confidence > CONFIDENCE_MIN:
-                self.bearing = packet.get("bearing", None)
+                self.bearing = packet.get("bearing") or None
                 if self.bearing > 180:
                     self.bearing = -(360 - self.bearing)
 
@@ -125,45 +125,58 @@ class Telemetry:
         self.sock = socket.socket(socket.AF_INET,   # Internet
                                 socket.SOCK_DGRAM)  # UDP
     
-    def update(self, pixhawk, compass):
+    def update(self, pixhawk, compass, pid, effort):
         packet = {}
         packet["type"] = "telem"
+        packet["heartbeat"] = pixhawk.heartbeat
         packet["bearing"] = compass.bearing
         packet["arm"] = pixhawk.armed
-        packet["heartbeat"] = pixhawk.heartbeat
+        packet["pidparams"] = [pid.Kp, pid.Ki, pid.Kd]
+        packet["(pitch-yaw)effort"] = [effort.pitch, effort.yaw]
         message = json.dumps(packet)
         # log.debug(message)            
         self.sock.sendto(message.encode(), (LOCALHOST, PORT_RELAY))
 
 
-class PIDtune:
+class CMDProcessor:
     """ Convenient class for tuning PID through UDP """
-    def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_PID):
+    def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_CMD):
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
         self.sock.settimeout(None)
+
+        self.arming = False
         
     def update(self, pid):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-            # log.info(message)
+            log.info(message)
             packet = json.loads(message.decode())
 
-            if packet.get("type") == "tune":
-                pid.Kp = packet.get('Kp', 0)
-                pid.Ki = packet.get('Ki', 0)
-                pid.Kd = packet.get('Kd', 0)
+            if packet.get("type") == "cmd":
+                if packet.get("cmd") == "tune":
+                    pid.Kp = packet.get('Kp') or 0
+                    pid.Ki = packet.get('Ki') or 0
+                    pid.Kd = packet.get('Kd') or 0
+
+                elif packet.get("cmd") == "arm":
+                    self.arming = packet.get("arm")
 
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
 
+class Effort:
+    def __init__(self):
+        self.pitch = 0
+        self.yaw = 0
 
 pixhawk = Pixhawk(DEVICE, BAUD)
 joy = Joystick()
 compass = RadioCompass()
 telem = Telemetry()
-tune = PIDtune()
+cmdproc = CMDProcessor()
+effort = Effort()
 yaw_pid = PID(Kp=0.3, Ki=0, Kd=1, setpoint=0, sample_time=0.5, output_limits=(-1,1))
 
 def joystick_thread():
@@ -176,76 +189,82 @@ def compass_thread():
 
 def relay_thread():
     while True:
-        telem.update(pixhawk, compass)
+        telem.update(pixhawk, compass, yaw_pid, effort)
         time.sleep(1)
 
-def telem_thread():
+def get_feedback_thread():
     while True:
         pixhawk.get_feedback()
         time.sleep(1)
 
-def pidtune_thread():
+def cmdproc_thread():
     while True:
-        tune.update(yaw_pid)
+        cmdproc.update(yaw_pid)
 
 if __name__ == "__main__":
     joystick_task = threading.Thread(target=joystick_thread)
     compass_task = threading.Thread(target=compass_thread)
     relay_task = threading.Thread(target=relay_thread)
-    telem_task = threading.Thread(target=telem_thread)
-    pidtune_task = threading.Thread(target=pidtune_thread)
+    get_feedback_task = threading.Thread(target=get_feedback_thread)
+    cmdproc_task = threading.Thread(target=cmdproc_thread)
     joystick_task.start()
     compass_task.start()
     relay_task.start()
-    telem_task.start()
-    pidtune_task.start()
+    get_feedback_task.start()
+    cmdproc_task.start()
 
     setpoint_timer = Timer(SETPOINT_REACHED_WAIT_PERIOD)
     while(1):
+        if not pixhawk.armed and cmdproc.arming:
+            pixhawk.arm()
+
+        elif pixhawk.armed and not cmdproc.arming:
+            pixhawk.disarm()
+
+
         js_active = joy.axes[2] > 0         # hold down LT button to use joystick
         if js_active:
-            arming = joy.btns[0]               # press A to arm
+            # arming = joy.btns[0]               # press A to arm
             disarming = joy.btns[1]            # press B to disarm
-            yaw = int(-joy.axes[0]*1000)    # left stick left-right for yaw
-            pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
+            effort.yaw = int(-joy.axes[0]*1000)    # left stick left-right for yaw
+            effort.pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
 
-            if arming and not pixhawk.armed:
-                log.info("here")
-                if (pitch == 0 and yaw == 0):          
-                    pixhawk.arm()
-                else:
-                    log.info("Joystick Pitch and Yaw must be neutral for arming")  
+            # if arming and not pixhawk.armed:
+            #     if (effort.pitch == 0 and effort.yaw == 0):          
+            #         pixhawk.arm()
+            #     else:
+            #         log.info("Joystick Pitch and Yaw must be neutral for arming")  
 
-            if disarming and pixhawk.armed:
-                pixhawk.disarm()
+            # if disarming and pixhawk.armed:
+            #     pixhawk.disarm()
 
             if pixhawk.armed:
-                pixhawk.send_cmd(pitch, yaw)
+                pixhawk.send_cmd(effort.pitch, effort.yaw)
 
             log.info("Using joystick control")
-            log.info("Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(pitch, yaw, pixhawk.armed, pixhawk.heartbeat))
+            log.info("Pitch effort: {}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}".format(effort.pitch, effort.yaw, pixhawk.armed, pixhawk.heartbeat))
 
         elif pixhawk.armed:
             if compass.bearing:
-                yaw = -yaw_pid(compass.bearing/180) * 1000      # Calculate PID based on scaled feedback
+                effort.yaw = -yaw_pid(compass.bearing/180) * 1000      # Calculate PID based on scaled feedback
 
                 if compass.bearing > -SETPOINT_TOLERANCE and compass.bearing < SETPOINT_TOLERANCE:
                     if setpoint_timer():                
-                        pitch = -FORWARD_SPEED
+                        effort.pitch = -FORWARD_SPEED
 
                 else:
                     setpoint_timer.reset()
-                    pitch = 0
+                    effort.pitch = 0
 
             else:
-                yaw = 0
-                pitch = 0
+                effort.yaw = 0
+                effort.pitch = 0
                 yaw_pid.reset()
 
-            pixhawk.send_cmd(pitch, yaw)
+            pixhawk.send_cmd(effort.pitch, effort.yaw)
             
             log.info("Using radio homing control")
-            log.info("Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(pitch, yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
+            log.info("Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(effort.pitch, effort.yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
             log.info("PID params: {} {} {}".format(yaw_pid.Kp, yaw_pid.Ki, yaw_pid.Kd))
             
         time.sleep(0.1)
