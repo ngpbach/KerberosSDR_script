@@ -10,10 +10,13 @@ import threading
 import logging as log
 log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
 
+js_unavailable = True
 try:
     import joystick as joy
+    js_unavailable = False
+
 except Exception as msg:
-    raise
+    log.warning("No Joystick available.")
 
 
 """ LORA serial settings """
@@ -25,8 +28,9 @@ try:
     ser = serial.Serial(DEVICE, BAUD, timeout=0.1)
     time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
     ser.reset_input_buffer()
-except serial.SerialException as msg:
-    log.error(msg)
+except Exception as msg:
+    log.error("Lora Uart module not available")
+    # log.error(msg)
     raise    
 
 def terminate():
@@ -122,7 +126,7 @@ def get_feedback(type="telem"):
 layout = [[sg.Text('Buttons will attempt to send command to Pi through LORA uart, but might fail due to packet collision.\nAcked mean successful.\nNot acked mean unknown if successful or not.\nCheck the response message to confirm and only try again if it really failed.')],
           [sg.Button('Calibrate')],
           [sg.Button('ARM'), sg.Button('DISARM')],
-          [sg.Checkbox('Joystick', key='JS', default=False, enable_events=True)],
+          [sg.Checkbox('Joystick', key='JS', default=False, enable_events=True, disabled=js_unavailable)],
           [sg.Text('Kp'), sg.Input(size=(6,1), key='Kp'), sg.Text('Ki'), sg.Input(size=(6,1), key='Ki'), sg.Text('Kd'), sg.Input(size=(6,1), key='Kd'), sg.Button('SetGains', disabled=False)],
           [sg.Text('Restart button will attemp to restart the control software on Pi')],
           [sg.Button('Restart'), sg.Button('RebootPi', disabled=True), sg.Button('StartPiSerialShell', disabled=True)],
@@ -152,8 +156,8 @@ if __name__ == "__main__":
     get_feedback_task = threading.Thread(target=get_feedback_thread, daemon=True)
     joystick_task.start()
     get_feedback_task.start()
-
-
+    
+    ack = False
     while True:
         window.Refresh()
         event, input = window.read()
@@ -200,9 +204,7 @@ if __name__ == "__main__":
         elif event == "RebootPi":
             # Pi unable to reboot properly. Problem with Pi hang if rebooting with Kerberos backfeed power into USB port
             ack = send_command("reboot")
-
-            
-
+          
         elif input["JS"]:
                 log.info("Using Joystick")
                 js_event.set()
