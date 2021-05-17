@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import serial
 import time
 import signal
@@ -117,9 +119,14 @@ def get_feedback(type="telem"):
         except json.JSONDecodeError:
             log.info(message)
 
-layout = [[sg.Checkbox('Joystick', key='JS', default=False, enable_events=True)],
-          [sg.Text('Kp'), sg.Input(size=(6,1), key='Kp'), sg.Text('Ki'), sg.Input(size=(6,1), key='Ki'), sg.Text('Kd'), sg.Input(size=(6,1), key='Kd')],
-          [sg.Button('Calibrate'), sg.Button('ARM'), sg.Button('DISARM'), sg.Button('Tune'), sg.Button('Exit')]]
+layout = [[sg.Text('Buttons will attempt to send command to Pi through LORA uart, but might fail due to packet collision.\nAcked mean successful.\nNot acked mean unknown if successful or not.\nCheck the response message to confirm and only try again if it really failed.')],
+          [sg.Button('Calibrate')],
+          [sg.Button('ARM'), sg.Button('DISARM')],
+          [sg.Checkbox('Joystick', key='JS', default=False, enable_events=True)],
+          [sg.Text('Kp'), sg.Input(size=(6,1), key='Kp'), sg.Text('Ki'), sg.Input(size=(6,1), key='Ki'), sg.Text('Kd'), sg.Input(size=(6,1), key='Kd'), sg.Button('SetGains', disabled=False)],
+          [sg.Text('Restart button will attemp to restart the control software on Pi')],
+          [sg.Button('Restart'), sg.Button('RebootPi', disabled=True), sg.Button('StartPiSerialShell', disabled=True)],
+          [sg.Text(size=(10,1), key='result')]]
   
 window = sg.Window('Ground Control Station', layout)
 
@@ -146,12 +153,13 @@ if __name__ == "__main__":
     joystick_task.start()
     get_feedback_task.start()
 
+
     while True:
         window.Refresh()
         event, input = window.read()
         # log.debug("{}, {}".format(event, input))
         
-        if event == 'Exit' or event == sg.WINDOW_CLOSED:
+        if event == sg.WINDOW_CLOSED:
             window.close()
             break
         
@@ -162,32 +170,49 @@ if __name__ == "__main__":
             else:
                 log.warning('Sync command *might* have lost. Check reply from Pi ("Waiting for Hydra..." means its working)')
 
-        elif event == 'Tune':
+        elif event == 'SetGains':
             params = {"Kp":input.get('Kp') or 0, "Ki":input.get('Ki') or 0, "Kd":input.get('Kd') or 0}
             ack = send_command("tune", params )
-            log.debug("PID params sent: %s", params)
+            # log.debug("PID params sent: %s", params)
 
         elif event == 'ARM':
-            send_joystick([0,0,1], [1,0])   # TODO: sending an Arm command rather than joystick
+            params = {"arm":True}
+            ack = send_command("arm", params)
+            # send_joystick([0,0,1], [1,0])   # TODO: sending an Arm command rather than joystick
 
         elif event == 'DISARM':
-            send_joystick([0,0,1], [0,1])   # TODO: sending an Disarm command rather than joystick
+            params = {"arm":False}
+            ack = send_command("arm", params)
+            if ack:
+                window['result'].update("Acked")
+            else:
+                window['result'].update("Not acked")
+            # send_joystick([0,0,1], [0,1])   # TODO: sending an Disarm command rather than joystick
 
-        # elif event == "StartShell":
-        #     """ For turning of Pi's relay server and turn on serial terminal mode """
-        #     ack = send_command("exit")
-        #     if ack:
-        #         log.info("Pi relay server exited successfully")
-        #     else:
-        #         log.warning("Pi relay server might have failed to exit")
-        #     exit(0)
+        elif event == 'Restart':
+            ack = send_command("restart")
+            log.info("Sent signal to restart control software on Pi side")
 
-        else:
-            if input["JS"]:
+        elif event == "StartPiSerialShell":
+            """ For turning of Pi's relay server and turn on serial terminal mode """
+            ack = send_command("exit")
+
+        elif event == "RebootPi":
+            # Pi unable to reboot properly. Problem with Pi hang if rebooting with Kerberos backfeed power into USB port
+            ack = send_command("reboot")
+
+            
+
+        elif input["JS"]:
                 log.info("Using Joystick")
                 js_event.set()
             
-            else:
+        elif not input["JS"]:
                 log.info("Stop using Joystick")
                 js_event.clear()
+    
 
+        if ack:
+            window['result'].update("Acked")
+        else:
+            window['result'].update("Not acked")
