@@ -65,7 +65,7 @@ layout = [[sg.Text('Buttons will attempt to send command to Pi through LORA uart
           [sg.Button('Restart'), sg.Button('RebootPi', disabled=True), sg.Button('StartPiSerialShell', disabled=True)],
           [sg.Text("Ack:"), sg.Text(size=(10,1), key='result')],
           [sg.Text("Feedback:")],
-          [sg.Output(size=(200, 20), font=("", 10), key='log')]]
+          [sg.Output(size=(200, 20), font=("roboto", 11), key='log')]]
   
 window = sg.Window(title='Ground Control Station', layout=layout, finalize=True)
 
@@ -121,11 +121,7 @@ def send_command(cmd, params={}, signal=True):
 
         ser.write(message.encode())
 
-        for i in range(tries):
-            log.info("tries: %d", i)
-            packet = get_feedback("ack")
-            if packet is not None:
-                break
+        packet = get_feedback("ack")
 
         read_mutex.release()
 
