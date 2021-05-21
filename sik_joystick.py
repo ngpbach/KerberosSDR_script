@@ -30,8 +30,8 @@ if __name__ == "__main__":
         if js_active:
             arming = joy.btns[0]               # press A to arm
             disarming = joy.btns[1]            # press B to disarm
-            yaw = int(-joy.axes[0]*1000)    # left stick left-right for yaw
-            pitch = int(-joy.axes[1]*1000)  # left stick up-down for pich
+            yaw = int(joy.axes[0]*1000)    # left stick left-right for yaw
+            pitch = int(joy.axes[1]*1000)  # left stick up-down for pich
 
             if arming and not pixhawk.armed:
                 if (pitch == 0 and yaw == 0):          

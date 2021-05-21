@@ -203,11 +203,36 @@ def cmdproc_thread():
     while True:
         cmdproc.update(yaw_pid)
 
+class StatusLED():
+    def __init__(self):
+        self.led = PWMLED(18)
+        self._mode = -1
+
+    def pulse_slow(self):
+        if self._mode != 0:
+            self._mode = 0
+            self.led.pulse(fade_in_time=1, fade_out_time=1)
+
+    def blink_slow(self):
+        if self._mode != 1:
+            self._mode = 1
+            self.led.blink(on_time=0.5, off_time=0.5)
+
+    def blink_fast(self):
+        if self._mode != 2:
+            self._mode = 2
+            self.led.blink(on_time=0.1, off_time=0.1)
+
+    def flash(self):
+        if self._mode != 3:
+            self._mode = 3
+            self.led.blink(on_time=0.01, off_time=1)
+    
+
 
 """ Main loop """
 def main():
-    led = PWMLED(18)
-    led.pulse(fade_in_time=2, fade_out_time=2)
+    led = StatusLED()
     setpoint_timer = Timer(SETPOINT_REACHED_WAIT_PERIOD)
 
     while(1):
@@ -218,17 +243,17 @@ def main():
             pixhawk.disarm()
 
         if pixhawk.armed:
+
             js_active = joy.axes[2] > 0         # hold down LT button to use joystick
             if js_active:
-                led.blink(1, 1)
                 effort.yaw = int(joy.axes[0]*1000)    # left stick left-right for yaw
                 effort.pitch = int(joy.axes[1]*1000)  # left stick up-down for pich
 
+                led.blink_fast()
                 log.info("Using joystick control")
             
             elif compass.bearing:
-                led.blink(0.1, 0.1)
-                effort.yaw = -yaw_pid(compass.bearing/180) * 1000      # Calculate PID based on scaled feedback
+                effort.yaw = yaw_pid(compass.bearing/180) * 1000      # Calculate PID based on scaled feedback
 
                 if compass.bearing > -SETPOINT_TOLERANCE and compass.bearing < SETPOINT_TOLERANCE:
                     if setpoint_timer():                
@@ -238,20 +263,23 @@ def main():
                     setpoint_timer.reset()
                     effort.pitch = 0
                 
+                led.flash()
                 log.info("Using radio homing control")
                 log.info("PID params: {} {} {}".format(yaw_pid.Kp, yaw_pid.Ki, yaw_pid.Kd))
 
-            else:
+            else:                    
                 effort.yaw = 0
                 effort.pitch = 0
                 yaw_pid.reset()
+                
+                led.blink_slow()
                 log.info("Waiting for compass bearing")
 
             pixhawk.send_cmd(effort.pitch, effort.yaw)
             
         
-        else:            
-            led.pulse(fade_in_time=2, fade_out_time=2)
+        else:
+            led.pulse_slow()
             log.info("Idling")
         
         log.info("Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(effort.pitch, effort.yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
