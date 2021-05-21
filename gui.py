@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import serial
+from serial.tools import miniterm
 import time
 import signal
 import atexit
@@ -28,7 +29,7 @@ BAUD = 115200    # baud of LORA UART
 # DEVICE = "./pttyin"
 
 try:
-    ser = serial.Serial(DEVICE, BAUD, timeout=1)
+    ser = serial.Serial(DEVICE, BAUD, timeout=2)
     time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
     ser.reset_input_buffer()
 except Exception as msg:
@@ -36,67 +37,18 @@ except Exception as msg:
     # log.error(msg)
     raise    
 
-""" 
-Handle exit events cleanly 
-"""
-def terminate():
-    ser.close()
-    exit()
-
-atexit.register(terminate)
-
-def handler(signal_received, frame):
-    terminate()
-
-# Tell Python to run the handler() function when SIGINT is recieved
-signal.signal(signal.SIGINT, handler) # ctlr + c
-signal.signal(signal.SIGTSTP, handler) # ctlr + z
-
-
-""" 
-Setup main GUI window 
-"""
-layout = [[sg.Text('Buttons will attempt to send command to Pi through LORA uart, but might fail due to packet collision.\nAcked mean successful.\nNot acked mean unknown if successful or not.\nCheck the response message to confirm and only try again if it really failed.')],
-          [sg.Button('Calibrate')],
-          [sg.Button('ARM'), sg.Button('DISARM')],
-          [sg.Checkbox('Joystick', key='JS', default=False, enable_events=True, disabled=js_unavailable)],
-          [sg.Text('Kp'), sg.Input(size=(6,1), key='Kp'), sg.Text('Ki'), sg.Input(size=(6,1), key='Ki'), sg.Text('Kd'), sg.Input(size=(6,1), key='Kd'), sg.Button('SetGains', disabled=False)],
-          [sg.Text('Restart button will attemp to restart the control software on Pi')],
-          [sg.Button('Restart'), sg.Button('RebootPi', disabled=True), sg.Button('StartPiSerialShell', disabled=True)],
-          [sg.Text("Ack:"), sg.Text(size=(10,1), key='result')],
-          [sg.Text("Feedback:")],
-          [sg.Output(size=(200, 20), font=("roboto", 11), key='log')]]
-  
-window = sg.Window(title='Ground Control Station', layout=layout, finalize=True)
-
-""" 
-Setup logger 
-"""
-class LogHandler(log.StreamHandler):
-    def __init__(self):
-        log.StreamHandler.__init__(self)
-
-    def emit(self, record):
-        window['log'].update(value=record)
-
-logger = log.StreamHandler()
-logger.setLevel(log.DEBUG)
-logger.setFormatter(log.Formatter('[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s'))
-log.getLogger('').addHandler(logger)
-
 """
 Helper functions
 """
 WHOAMI = "gcs"
 TARGET = "pi"
 
-
-
-read_mutex = threading.Lock()   # mutex to make sure ack can be read by proper thread
+read_mutex = threading.Lock()   # mutex to make sure ack won't be consumed by another thread
+send_mutex = threading.Lock()   # mutex to make sure only one command is being sent when waiting for ack
 def send_command(cmd, params={}, signal=True):
     try:
 
-        tries = 5
+        tries = 3
         packet = {}
         # Reducing message size to save serial bandwidth
         # packet["origin"] = WHOAMI
@@ -108,6 +60,7 @@ def send_command(cmd, params={}, signal=True):
         # log.debug("Sending: %s", message)
 
         read_mutex.acquire()
+        send_mutex.acquire()
         ser.reset_input_buffer()
 
         if signal:
@@ -124,6 +77,7 @@ def send_command(cmd, params={}, signal=True):
         packet = get_feedback("ack")
 
         read_mutex.release()
+        send_mutex.release()
 
         if packet and packet.get("cmd") == cmd:
             log.info("Command was acknowleged properly.")
@@ -145,7 +99,7 @@ def send_joystick(axes, btns):
         packet["ax"] = [round(num, 3) for num in axes[0:3]]      # only need 3 axes, with 3 decimal places
         packet["bt"] = btns[0:2]      # only need 2 buttons
         message = json.dumps(packet) + '\n'
-        log.debug("Sending: %s", message)
+        # log.debug("Sending: %s", message)
         ser.write(message.encode())
 
     except TypeError as msg:
@@ -165,21 +119,23 @@ def send_joystick(axes, btns):
     #         return message
 
 def get_feedback(type="raw"):
-    message = ser.readline()
-    if message:
-        log.debug(message)
-        if type == "raw":
-            return message
+    try:
+        message = ser.readline()
+        if message:
+            log.debug(message)
+            if type == "raw":
+                return message
 
-        try:
             packet = json.loads(message.decode())
             if packet.get("type") == type:
                 return packet
-    
-        except UnicodeDecodeError:
-            log.error("Gargabe characters received: %s", message)
-        except json.JSONDecodeError:
-            log.info("Packet received corrupted")
+        else:
+            log.debug("Feedback read timed out.")
+
+    except UnicodeDecodeError:
+        log.error("Gargabe characters received: %s", message)
+    except json.JSONDecodeError:
+        log.info("Packet received corrupted")
 
 """
 Threads function
@@ -194,7 +150,9 @@ def joystick_thread():
     while True:
         js_event.wait()
         joy.joystick_update()
+        send_mutex.acquire()
         send_joystick(joy.axes, joy.btns)
+        send_mutex.release()
         time.sleep(0.2)
 
 def get_feedback_thread():
@@ -207,6 +165,58 @@ def get_feedback_thread():
             pass
 
         time.sleep(1)
+""" 
+Setup main GUI window 
+"""
+layout = [[sg.Text('Each button will attempt to send command to waterPi through LORA uart, but might fail due to packet collision.\nAcked mean successful.\nNot acked mean unknown if successful or not.\nCheck the response message to confirm and only try again if it really failed.\n')],
+          [sg.Button('Calibrate'), sg.Text('!!!CRITICAL!!! Calibration is required everytime waterPi software is reset. Make sure that either all antennas (including cables) are disconnected, or all nearby beacons transmitting around 121.65Mhz are off before calibrating.')],
+          [sg.Button('ARM'), sg.Button('DISARM')],
+          [sg.Checkbox('Joystick', key='JS', default=False, enable_events=True, disabled=js_unavailable)],
+          [sg.Text('Kp'), sg.Input(size=(6,1), key='Kp'), sg.Text('Ki'), sg.Input(size=(6,1), key='Ki'), sg.Text('Kd'), sg.Input(size=(6,1), key='Kd'), sg.Button('SetGains', disabled=False)],
+          [sg.Button('Restart'), sg.Text('Restart button will attemp to restart the control software on Pi')],
+          [sg.Button('RebootPi', disabled=True), sg.Text('Not implemented. WaterPi has trouble resetting with Kerberos connected')],
+          [sg.Button('StartPiSerialShell', disabled=True), sg.Text('Turn off waterPi relay server and turn on waterPi Serial Shell for troubleshooting')],
+          [sg.Text("Ack:"), sg.Text(size=(10,1), key='result')],
+          [sg.Text("Feedback:")],
+          [sg.Output(size=(200, 20), font=("roboto", 11), key='log')]]
+  
+window = sg.Window(title='Ground Control Station', layout=layout, finalize=True)
+
+""" 
+Setup logger 
+"""
+class LogHandler(log.StreamHandler):
+    def __init__(self):
+        log.StreamHandler.__init__(self)
+
+    def emit(self, record):
+        window['log'].update(value=record)
+
+logger = log.StreamHandler()
+logger.setLevel(log.DEBUG)
+logger.setFormatter(log.Formatter('[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s'))
+log.getLogger('').addHandler(logger)
+
+""" 
+Handle exit events cleanly 
+"""
+def terminate():
+    window.close()
+    ser.close()
+    exit()
+
+atexit.register(terminate)
+
+def handler(signal_received, frame):
+    terminate()
+
+# Tell Python to run the handler() function when SIGINT is recieved
+signal.signal(signal.SIGINT, handler) # ctlr + c
+signal.signal(signal.SIGTSTP, handler) # ctlr + z
+
+""" 
+Helper funtions 
+"""
 
 """
 Main loop
@@ -255,13 +265,23 @@ if __name__ == "__main__":
         elif event == "StartPiSerialShell":
             """ For turning of Pi's relay server and turn on serial terminal mode """
             ack = send_command("exit", signal=True)
+            if ack:
+                window['log'].__del__() # work around pysimplegui Output bug not returning stdio
+                window.close()
+                read_mutex.acquire()    # lock read threads
+                send_mutex.acquire()    # lock write threads
+                # ser.write(b'\n')
+                ser.close()
+                miniterm.main(DEVICE,BAUD)
+                break
 
         elif event == "RebootPi":
             # Pi unable to reboot properly. Problem with Pi hang if rebooting with Kerberos backfeed power into USB port
             ack = send_command("reboot")
           
         elif input["JS"]:
-                log.info("Using Joystick")
+                log.info("Using Joystick. Feedback disabled")
+
                 js_event.set()
             
         elif not input["JS"]:
@@ -273,3 +293,4 @@ if __name__ == "__main__":
             window['result'].update("Acked")
         else:
             window['result'].update("Not acked")
+            
