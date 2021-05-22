@@ -141,8 +141,8 @@ def update_gui(window, packet):
     try:
         window["heartbeat"].update(packet.get("heartbeat"))
         window["arm"].update(packet.get("arm"))
-        window["pitch"].update(packet.get("(pitch-yaw)effort")[0])
-        window["yaw"].update(packet.get("(pitch-yaw)effort")[1])
+        window["pitch"].update(packet.get("effort(p,y)")[0])
+        window["yaw"].update(packet.get("effort(p,y")[1])
         window["bearing"].update(packet.get("bearing"))
         window["vision"].update(packet.get("vision"))
         window["distance"].update(packet.get("distance"))
