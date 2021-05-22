@@ -18,7 +18,7 @@ log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', 
 
 #TODO: switch pi serial to normal UART when script start
 
-cmd_start_console = 'sudo stty -F /dev/serial0 9600 && sudo systemctl start serial-getty@serial0.service'            # start the serial console when this program exit
+cmd_start_console = 'sudo stty -F /dev/serial0 115200 && sudo systemctl start serial-getty@serial0.service'            # start the serial console when this program exit
 cmd_stop_console = 'sudo systemctl stop serial-getty@serial0.service'            # stop the serial console when this program start
 cmd_start_kerberos = '/home/pi/Desktop/kerberos_scripts/start_kerberos_doa.sh'      # start the kerberos syncing procedure and then start DOA server
 cmd_restart = '/home/pi/Desktop/kerberos_scripts/start_control.sh'
