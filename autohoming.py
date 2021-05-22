@@ -20,7 +20,9 @@ PORT_RELAY = 5000
 PORT_KERB = 5001
 PORT_JS = 5002
 PORT_CMD = 5003
+PORT_VISION = 5004
 LOCALHOST = "127.0.0.1"
+VISION_IP = ''
 
 """ PID settings """
 SETPOINT_TOLERANCE = 10             # angle in degrees, within which the ship heading can be considered "good enough" for proceeding toward the beacon
@@ -76,6 +78,37 @@ class Joystick:
             log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
         except KeyError as msg:
             log.error("Packet received has no [%s] key", msg)
+
+class Vision:
+    def __init__(self, UDP_IP = VISION_IP, UDP_PORT = PORT_VISION):
+        self.bearing = None
+        self.distance = None
+
+        self.sock = socket.socket(socket.AF_INET, # Internet
+                                    socket.SOCK_DGRAM) # UDP
+        self.sock.bind((UDP_IP, UDP_PORT))
+        self.sock.settimeout(10)
+
+        self.reset()
+
+    def reset(self):
+        self.bearing = None
+        self.distance = None
+
+    def update(self):
+        try:
+            message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
+            # log.debug(message)
+            packet = json.loads(message.decode())
+
+            if packet.get("type") == "vision":
+                self.bearing = packet.get("bearing") or None
+                self.distance = packet.get("distance") or None
+
+        except socket.timeout:
+            log.debug("Socket timed out waiting for Vision msg")
+        except json.JSONDecodeError:
+            log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
 
 class RadioCompass:
     """ Convenient class for getting radio compass data from UDP packet """
@@ -175,6 +208,7 @@ class Effort:
 pixhawk = Pixhawk(DEVICE, BAUD)
 joy = Joystick()
 compass = RadioCompass()
+vision = Vision()
 telem = Telemetry()
 cmdproc = CMDProcessor()
 effort = Effort()
@@ -188,6 +222,10 @@ def joystick_thread():
 def compass_thread():
     while True:
         compass.update()
+
+def vision_thread():
+    while True:
+        vision.update()
 
 def relay_thread():
     while True:
@@ -282,7 +320,9 @@ def main():
             led.pulse_slow()
             log.info("Idling")
         
-        log.info("Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current bearing: {}".format(effort.pitch, effort.yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
+        log.info("Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current radio bearing: {}".format(effort.pitch, effort.yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
+        log.info("Current radio bearing: {}\t Current vision bearing: {}\t Current vision distance: {}".format(compass.bearing, vision.bearing, vision.distance))
+
         time.sleep(0.1)
 
 
@@ -295,11 +335,13 @@ def main():
 if __name__ == "__main__":
     joystick_task = threading.Thread(target=joystick_thread)
     compass_task = threading.Thread(target=compass_thread)
+    vision_task = threading.Thread(target=vision_thread)
     relay_task = threading.Thread(target=relay_thread)
     get_feedback_task = threading.Thread(target=get_feedback_thread)
     cmdproc_task = threading.Thread(target=cmdproc_thread)
     joystick_task.start()
     compass_task.start()
+    vision_task.start()
     relay_task.start()
     get_feedback_task.start()
     cmdproc_task.start()
