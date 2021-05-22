@@ -142,7 +142,7 @@ def update_gui(window, packet):
         window["heartbeat"].update(packet.get("heartbeat"))
         window["arm"].update(packet.get("arm"))
         window["pitch"].update(packet.get("effort(p,y)")[0])
-        window["yaw"].update(packet.get("effort(p,y")[1])
+        window["yaw"].update(packet.get("effort(p,y)")[1])
         window["bearing"].update(packet.get("bearing"))
         window["vision"].update(packet.get("vision"))
         window["distance"].update(packet.get("distance"))
@@ -168,15 +168,18 @@ def joystick_thread():
         send_mutex.release()
         time.sleep(0.2)
 
+
+feedback_packet = {}
 def get_feedback_thread():
+    global feedback_packet
     while(1):
         packet = {}
         read_mutex.acquire()
         packet = get_feedback("telem", label="Telem")
         read_mutex.release()
         if packet:
+            feedback_packet = packet
             # log.info(packet)
-            update_gui(window, packet)
             pass
 
         time.sleep(1)
@@ -257,6 +260,7 @@ if __name__ == "__main__":
     
     ack = False
     while True:
+        update_gui(window, feedback_packet)
         window.Refresh()
         event, input = window.read(timeout=1000)
         # log.debug("{}, {}".format(event, input))
