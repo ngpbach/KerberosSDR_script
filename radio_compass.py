@@ -9,7 +9,7 @@ from selenium.webdriver.chrome.options import Options
 import json
 import time
 import logging as log
-log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.INFO)
+log.basicConfig(format='[%(levelname)s][%(asctime)s][%(funcName)s]%(message)s', level=log.DEBUG)
 
 SERVERIP = '127.0.0.1'
 BEARING_OFFSET = 45

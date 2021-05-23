@@ -169,11 +169,10 @@ def joystick_thread():
         time.sleep(0.2)
 
 
-feedback_packet = {}
+feedback_packet = None
 def get_feedback_thread():
     global feedback_packet
     while(1):
-        packet = {}
         read_mutex.acquire()
         packet = get_feedback("telem", label="Telem")
         read_mutex.release()
@@ -190,14 +189,14 @@ Setup main GUI window
 sg.ChangeLookAndFeel("Black")
 
 layout = [
-          [sg.Button("Calibrate"), sg.Frame("!!!CRITICAL!!!", [[sg.Text("Calibration is required everytime waterPi software has been reset.\n"
+          [sg.Button("Calibrate"), sg.Frame("!!!CRITICAL!!!", [[sg.Text("Calibration is required everytime WaterPi software has been reset.\n"
                                                                          "Make sure that either all antennas (including cables) are disconnected,\n"
                                                                          "or all nearby beacons transmitting around 121.65Mhz are off before calibrating.")]])],
           [sg.Button("ARM"), sg.Button("DISARM"), sg.Text("Kp"), sg.Input(size=(6,1), key="Kp"), sg.Text("Ki"), sg.Input(size=(6,1), key="Ki"), sg.Text("Kd"), sg.Input(size=(6,1), key="Kd"), sg.Button("SetGains", disabled=False)],
           [sg.Checkbox("Joystick", key="JS", default=False, disabled=js_unavailable)],
           [sg.Button("Restart"), sg.Text("Restart button will attemp to restart the control software on Pi")],
           [sg.Button("RebootPi", disabled=True), sg.Text("Not implemented. WaterPi has trouble resetting with Kerberos connected")],
-          [sg.Button("StartPiSerialShell", disabled=True), sg.Text("Turn off waterPi relay server and turn on waterPi Serial Shell for troubleshooting")],
+          [sg.Button("StartPiSerialShell", disabled=False), sg.Text("Turn off WaterPi relay server and turn on WaterPi Serial Shell for troubleshooting")],
           [sg.Frame("Heartbeat", [
               [sg.Text(size=(10,1), text_color="red", key="heartbeat")]]), 
                sg.Frame("Arm", [[sg.Text(size=(10,1), text_color="red", key="arm")]]), 
@@ -207,13 +206,11 @@ layout = [
                sg.Frame("Vision bearing", [[sg.Text(size=(10,1), text_color="red", key="vision")]]),
                sg.Frame("Vision distance", [[sg.Text(size=(10,1), text_color="red", key="distance")]])
           ],
-
-          [sg.Text("---------Log---------")],
-          [sg.Output(size=(125, 5), key="log")]
+          [sg.Frame("Log", [[sg.Output(size=(125, 5), key="log")]])]
           ]
 
 window = sg.Window(title="Ground Control Station", layout=layout, default_element_size=(10,1), auto_size_buttons=True, auto_size_text=True, finalize=True)
-sg.popup("Each button attempts to send a command to waterPi through LORA uart, but might fail due to packet collision.\n"
+sg.popup("Each button attempts to send a command to WaterPi through LORA uart, but might fail due to packet collision.\n"
           "Acked mean successful.\nNot acked mean unknown if successful or not.\n"
           "Check the response message to confirm and try again if it really failed.", keep_on_top=True, title="Attention")
 
@@ -260,8 +257,10 @@ if __name__ == "__main__":
     
     ack = False
     while True:
-        update_gui(window, feedback_packet)
-        window.Refresh()
+        if feedback_packet:
+            update_gui(window, feedback_packet)
+            
+        # window.Refresh()
         event, input = window.read(timeout=1000)
         # log.debug("{}, {}".format(event, input))
         
