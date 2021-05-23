@@ -114,6 +114,7 @@ class RadioCompass:
     """ Convenient class for getting radio compass data from UDP packet """
     def __init__(self, UDP_IP = LOCALHOST, UDP_PORT = PORT_KERB):
         self.bearing = None
+        self.raw_bearing = None
         self.power = 0
         self.confidence = 0
         self.min_power = 10          # minimum strength to be considered valid
@@ -133,6 +134,7 @@ class RadioCompass:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             # log.info(message)
             packet = json.loads(message.decode())
+            self.raw_bearing = packet.get("bearing") or None
             self.strength = packet.get("strength") or 0
             self.confidence = packet.get("confidence") or 0
 
@@ -161,7 +163,7 @@ class Telemetry:
         packet = {}
         packet["type"] = "telem"
         packet["heartbeat"] = pixhawk.heartbeat
-        packet["bearing"] = compass.bearing
+        packet["bearing"] = compass.raw_bearing
         packet["arm"] = pixhawk.armed
         packet["pidparams"] = [pid.Kp, pid.Ki, pid.Kd]
         packet["effort(p,y)"] = [effort.pitch, effort.yaw]
@@ -191,6 +193,10 @@ class CMDProcessor:
                     pid.Kp = packet.get('Kp') or 0
                     pid.Ki = packet.get('Ki') or 0
                     pid.Kd = packet.get('Kd') or 0
+
+                elif packet.get("cmd") == "threshold":
+                    compass.min_confidence = packet.get('conf') or 0
+                    compass.min_power = packet.get('power') or 0
 
                 elif packet.get("cmd") == "arm":
                     self.arming = packet.get("arm")
@@ -305,16 +311,18 @@ def main():
                 log.info("Using radio homing control")
                 log.info("PID params: {} {} {}".format(yaw_pid.Kp, yaw_pid.Ki, yaw_pid.Kd))
 
-            else:                    
-                effort.yaw = 0
-                effort.pitch = 0
-                yaw_pid.reset()
-                
+            else:
+                if effort.yaw != 0 or effort.pitch !=0:
+                    effort.yaw = 0
+                    effort.pitch = 0
+                    yaw_pid.reset()
+                    pixhawk.send_cmd(effort.pitch, effort.yaw)
+
                 led.blink_slow()
                 log.info("Waiting for compass bearing")
+                continue
 
             pixhawk.send_cmd(effort.pitch, effort.yaw)
-            
         
         else:
             led.pulse_slow()
