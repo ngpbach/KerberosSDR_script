@@ -109,6 +109,10 @@ class RelayServer:
                 elif packet.get("cmd") == "tune":
                     self.send_ack("tune")
                     self.sock.sendto(message, (LOCALHOST, PORT_CMD))
+                
+                elif packet.get("cmd") == "threshold":
+                    self.send_ack("threshold")
+                    self.sock.sendto(message, (LOCALHOST, PORT_CMD))
 
                 elif packet.get("cmd") == "sync":
                     self.send_ack("sync")
@@ -129,7 +133,7 @@ class RelayServer:
 
                 elif packet.get("cmd") == "restart":
                     self.send_ack("restart")
-                    process = Popen(cmd_restart, preexec_fn=demote(1000), stdout=PIPE, stderr=PIPE, bufsize=1)
+                    process = Popen(cmd_restart, stdout=PIPE, stderr=PIPE, bufsize=1)
                 
                 # self.ser.reset_input_buffer()
 

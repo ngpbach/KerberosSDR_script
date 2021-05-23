@@ -21,9 +21,11 @@ class Pixhawk:
         self.master = mavutil.mavlink_connection(DEVICE, BAUD)
 
         # Wait a heartbeat before sending commands
-        self.mutex.acquire()
+        # self.mutex.acquire()
+        # self.master.reboot_autopilot()
+        # time.sleep(10)
+        # self.master = mavutil.mavlink_connection(DEVICE, BAUD)
         self.master.wait_heartbeat()
-        self.mutex.release()
 
         # Choose a mode
         mode = 'MANUAL'
@@ -32,14 +34,13 @@ class Pixhawk:
         mode_id = self.master.mode_mapping()[mode]
 
         # Set new mode
-        self.mutex.acquire()
         self.master.mav.set_mode_send(
             self.master.target_system,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             mode_id)
 
         ack = self.get_ack(mavutil.mavlink.MAVLINK_MSG_ID_SET_MODE, retry=3)
-        self.mutex.release()
+        # self.mutex.release()
         if ack:
             log.info("Manual mode success")
         else:
@@ -93,10 +94,10 @@ class Pixhawk:
         # where 0 is full reverse, 500 is no output and 1000 is full throttle.
         # x,y and r will be between [-1000 and 1000].
         self.master.mav.manual_control_send( self.master.target_system,
-                                        -pitch,     # TODO: temporary fix
+                                        pitch,
                                         0,
                                         500,
-                                        -yaw,
+                                        yaw,
                                         0)
 
     def get_feedback(self):
@@ -141,10 +142,11 @@ class Pixhawk:
 if __name__ == "__main__":
     target = Pixhawk(DEVICE, BAUD)
     target.arm()
-    for i in range(5):
+    for i in range(10):
         target.send_cmd(200,0)
         target.get_feedback()
         time.sleep(1)
 
     target.disarm()
+
 

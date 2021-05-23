@@ -117,6 +117,7 @@ class RadioCompass:
         self.raw_bearing = None
         self.power = 0
         self.confidence = 0
+        self.confident = False
         self.min_power = 10          # minimum strength to be considered valid
         self.min_confidence = 5      # minimum confidence to be considered valid
         self.sock = socket.socket(socket.AF_INET, # Internet
@@ -128,23 +129,21 @@ class RadioCompass:
         self.bearing = None
         self.power = 0
         self.confidence = 0
+        self.confident = False
 
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
             log.info(message)
             packet = json.loads(message.decode())
-            self.raw_bearing = packet.get("bearing") or None
-            self.strength = packet.get("strength") or 0
+            self.power = packet.get("power") or 0
             self.confidence = packet.get("confidence") or 0
+            log.debug("Min Power {}, Min Confidence {}".format(self.min_power, self.min_confidence))
+            self.confident = self.power >= self.min_power and self.confidence >= self.min_confidence
+            self.bearing = packet.get("bearing") or None
+            if self.bearing and self.bearing > 180:
+                self.bearing = -(360 - self.bearing)
 
-            if self.strength > self.min_power and self.confidence > self.min_confidence:
-                self.bearing = packet.get("bearing") or None
-                if self.bearing > 180:
-                    self.bearing = -(360 - self.bearing)
-
-            else:
-                self.bearing = None
             
         except socket.timeout:
             self.reset()
@@ -163,7 +162,8 @@ class Telemetry:
         packet = {}
         packet["type"] = "telem"
         packet["heartbeat"] = pixhawk.heartbeat
-        packet["bearing"] = compass.raw_bearing
+        packet["bearing"] = compass.bearing
+        packet["confident"] = compass.confident
         packet["arm"] = pixhawk.armed
         packet["pidparams"] = [pid.Kp, pid.Ki, pid.Kd]
         packet["effort(p,y)"] = [effort.pitch, effort.yaw]
@@ -181,6 +181,7 @@ class CMDProcessor:
         self.sock.settimeout(None)
 
         self.arming = False
+        self.disarming = False
         
     def update(self, pid):
         try:
@@ -190,16 +191,19 @@ class CMDProcessor:
 
             if packet.get("type") == "cmd":
                 if packet.get("cmd") == "tune":
-                    pid.Kp = packet.get('Kp') or 0
-                    pid.Ki = packet.get('Ki') or 0
-                    pid.Kd = packet.get('Kd') or 0
-
-                elif packet.get("cmd") == "threshold":
-                    compass.min_confidence = packet.get('conf') or 0
-                    compass.min_power = packet.get('power') or 0
+                    pid.Kp = packet.get('Kp')
+                    pid.Ki = packet.get('Ki')
+                    pid.Kd = packet.get('Kd')
 
                 elif packet.get("cmd") == "arm":
-                    self.arming = packet.get("arm")
+                    if packet.get("arm"):
+                        self.arming = True
+                    else:
+                        self.disarming = True
+
+                elif packet.get("cmd") == "threshold":
+                    compass.min_confidence = packet.get('conf')
+                    compass.min_power = packet.get('power')
 
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
@@ -280,14 +284,21 @@ def main():
     setpoint_timer = Timer(SETPOINT_REACHED_WAIT_PERIOD)
 
     while(1):
+        time.sleep(0.1)
+
         if not pixhawk.armed and cmdproc.arming:
             pixhawk.arm()
+            cmdproc.arming = False
 
-        elif pixhawk.armed and not cmdproc.arming:
+        elif pixhawk.armed and cmdproc.disarming:
+            effort.yaw = 0
+            effort.pitch = 0
+            yaw_pid.reset()
+            pixhawk.send_cmd(effort.pitch, effort.yaw)
             pixhawk.disarm()
+            cmdproc.disarming = False
 
         if pixhawk.armed:
-
             js_active = joy.axes[2] > 0         # hold down LT button to use joystick
             if js_active:
                 effort.yaw = int(joy.axes[0]*1000)    # left stick left-right for yaw
@@ -296,8 +307,8 @@ def main():
                 led.blink_fast()
                 log.info("Using joystick control")
             
-            elif compass.bearing:
-                effort.yaw = yaw_pid(compass.bearing/180) * 1000      # Calculate PID based on scaled feedback
+            elif compass.bearing and compass.confident:
+                effort.yaw = int(yaw_pid(compass.bearing/180) * 1000)      # Calculate PID based on scaled feedback
 
                 if compass.bearing > -SETPOINT_TOLERANCE and compass.bearing < SETPOINT_TOLERANCE:
                     if setpoint_timer():                
@@ -312,15 +323,12 @@ def main():
                 log.info("PID params: {} {} {}".format(yaw_pid.Kp, yaw_pid.Ki, yaw_pid.Kd))
 
             else:
-                if effort.yaw != 0 or effort.pitch !=0:
-                    effort.yaw = 0
-                    effort.pitch = 0
-                    yaw_pid.reset()
-                    pixhawk.send_cmd(effort.pitch, effort.yaw)
+                effort.yaw = 0
+                effort.pitch = 0
+                yaw_pid.reset()
 
                 led.blink_slow()
                 log.info("Waiting for compass bearing")
-                continue
 
             pixhawk.send_cmd(effort.pitch, effort.yaw)
         
@@ -328,10 +336,9 @@ def main():
             led.pulse_slow()
             log.info("Idling")
         
-        log.info("Pitch effort:{}\t Yaw effort: {}\t Armed: {}\t Link Hearbeat: {}\t Current radio bearing: {}".format(effort.pitch, effort.yaw, pixhawk.armed, pixhawk.heartbeat, compass.bearing))
-        log.info("Current radio bearing: {}\t Current vision bearing: {}\t Current vision distance: {}".format(compass.bearing, vision.bearing, vision.distance))
+        log.info("Pitch effort:{}\tYaw effort: {}\tArmed: {}\tLink Hearbeat: {}".format(effort.pitch, effort.yaw, pixhawk.armed, pixhawk.heartbeat))
+        log.info("Current radio bearing: {}\tPower: {}\tConfidence: {}\tCurrent vision bearing: {}\tCurrent vision distance: {}".format(compass.bearing, compass.power, compass.confidence, vision.bearing, vision.distance))
 
-        time.sleep(0.1)
 
 
 
