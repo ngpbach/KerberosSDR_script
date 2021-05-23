@@ -135,7 +135,8 @@ def get_feedback(type="raw", label="Serial"):
     except UnicodeDecodeError:
         log.error("Gargabe characters received: %s", message)
     except json.JSONDecodeError:
-        log.info("Packet received corrupted")
+        # log.debug("Packet received corrupted")
+        pass
 
 def update_gui(window, packet):
     try:
@@ -144,6 +145,7 @@ def update_gui(window, packet):
         window["pitch"].update(packet.get("effort(p,y)")[0])
         window["yaw"].update(packet.get("effort(p,y)")[1])
         window["bearing"].update(packet.get("bearing"))
+        window["confident"].update(packet.get("confident"))
         window["vision"].update(packet.get("vision"))
         window["distance"].update(packet.get("distance"))
     except TypeError as msg:
@@ -192,19 +194,27 @@ layout = [
           [sg.Button("Calibrate"), sg.Frame("!!!CRITICAL!!!", [[sg.Text("Calibration is required everytime WaterPi software has been reset.\n"
                                                                          "Make sure that either all antennas (including cables) are disconnected,\n"
                                                                          "or all nearby beacons transmitting around 121.65Mhz are off before calibrating.")]])],
-          [sg.Button("ARM"), sg.Button("DISARM"), sg.Text("Kp"), sg.Input(size=(6,1), key="Kp"), sg.Text("Ki"), sg.Input(size=(6,1), key="Ki"), sg.Text("Kd"), sg.Input(size=(6,1), key="Kd"), sg.Button("SetGains", disabled=False)],
+          [sg.Button("ARM"), sg.Button("DISARM")],
           [sg.Checkbox("Joystick", key="JS", default=False, disabled=js_unavailable)],
           [sg.Button("Restart"), sg.Text("Restart button will attemp to restart the control software on Pi")],
           [sg.Button("RebootPi", disabled=True), sg.Text("Not implemented. WaterPi has trouble resetting with Kerberos connected")],
           [sg.Button("StartPiSerialShell", disabled=False), sg.Text("Turn off WaterPi relay server and turn on WaterPi Serial Shell for troubleshooting")],
-          [sg.Frame("Heartbeat", [
-              [sg.Text(size=(10,1), text_color="red", key="heartbeat")]]), 
-               sg.Frame("Arm", [[sg.Text(size=(10,1), text_color="red", key="arm")]]), 
-               sg.Frame("Yaw effort", [[sg.Text(size=(10,1), text_color="red", key="yaw")]]), 
-               sg.Frame("Pitch effort", [[sg.Text(size=(10,1), text_color="red", key="pitch")]]),
-               sg.Frame("Radio bearing", [[sg.Text(size=(10,1), text_color="red", key="bearing")]]),
-               sg.Frame("Vision bearing", [[sg.Text(size=(10,1), text_color="red", key="vision")]]),
-               sg.Frame("Vision distance", [[sg.Text(size=(10,1), text_color="red", key="distance")]])
+          [sg.Frame(
+            "Tuning",
+            [[
+            sg.Text("Kp"), sg.Input(size=(6,1), key="Kp"), sg.Text("Ki"), sg.Input(size=(6,1), key="Ki"), sg.Text("Kd"), sg.Input(size=(6,1), key="Kd"), sg.Button("SetGains", disabled=False),
+            sg.Text("Min Power"), sg.Input(size=(6,1), key="minpow"), sg.Text("Min Confidence"), sg.Input(size=(6,1), key="minconf"), sg.Button("SetThresholds", disabled=False)
+            ]]
+            )
+          ],
+          [sg.Frame("Heartbeat", [[sg.Text(size=(10,1), text_color="red", key="heartbeat")]]), 
+           sg.Frame("Arm", [[sg.Text(size=(10,1), text_color="red", key="arm")]]), 
+           sg.Frame("Yaw effort", [[sg.Text(size=(10,1), text_color="red", key="yaw")]]), 
+           sg.Frame("Pitch effort", [[sg.Text(size=(10,1), text_color="red", key="pitch")]]),
+           sg.Frame("Radio bearing", [[sg.Text(size=(10,1), text_color="red", key="bearing")]]),
+           sg.Frame("Confident", [[sg.Text(size=(10,1), text_color="red", key="confident")]]),
+           sg.Frame("Vision bearing", [[sg.Text(size=(10,1), text_color="red", key="vision")]]),
+           sg.Frame("Vision distance", [[sg.Text(size=(10,1), text_color="red", key="distance")]])
           ],
           [sg.Frame("Log", [[sg.Output(size=(125, 5), key="log")]])]
           ]
@@ -272,13 +282,24 @@ if __name__ == "__main__":
             ack = send_command("sync", signal=True)
             # if ack:
             #     log.info("Kerberos Sync procedure started")
+            #     sg.popup_timed("Kerberos Sync procedure started", keep_on_top=True)
             # else:
-            #     log.warning("Sync command *might* have lost. Check reply from Pi ("Waiting for Hydra..." means its working)")
+            #     log.warning("Sync command *might* have lost. Check reply from Pi ('Waiting for Hydra...' means its working)")
 
         elif event == "SetGains":
-            params = {"Kp":input.get("Kp") or 0, "Ki":input.get("Ki") or 0, "Kd":input.get("Kd") or 0}
-            ack = send_command("tune", params, signal=True)
-            # log.debug("PID params sent: %s", params)
+            try:
+                params = {"Kp":float(input.get("Kp") or 0), "Ki":float(input.get("Ki") or 0), "Kd":float(input.get("Kd") or 0)}
+                ack = send_command("tune", params, signal=True)
+                # log.debug("PID params sent: %s", params)
+            except Exception as msg:
+                log.debug(msg)
+
+        elif event == "SetThresholds":
+            try:
+                params = {"power":int(input.get("minpow") or 0), "conf":int(input.get("minconf") or 0)}
+                ack = send_command("threshold", params, signal=True)
+            except Exception as msg:
+                log.debug(msg)
 
         elif event == "ARM":
             params = {"arm":True}
@@ -323,7 +344,7 @@ if __name__ == "__main__":
     
         if event != "__TIMEOUT__":
             if ack:
-                sg.popup("Acked", keep_on_top=True)
+                sg.popup_quick_message("Acked", keep_on_top=True)
             else:
-                sg.popup("Not Acked", keep_on_top=True)
+                sg.popup_quick_message("Not Acked", keep_on_top=True)
             
