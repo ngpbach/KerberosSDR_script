@@ -29,7 +29,7 @@ source $HOME/Desktop/kerberos_scripts/.venv/bin/activate
 
 # Now run sync procedure, then start the compass server
 cd $HOME/Desktop/kerberos_scripts && python3 -u ./kerberos_sync.py
-python3 -u ./radio_compass.py&
+python3 -u ./radio_compass.py &> log/radio_compass.log
 
 echo "done"
 

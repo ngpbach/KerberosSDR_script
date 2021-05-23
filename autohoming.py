@@ -131,7 +131,7 @@ class RadioCompass:
     def update(self):
         try:
             message, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-            # log.info(message)
+            log.info(message)
             packet = json.loads(message.decode())
             self.strength = packet.get("strength") or 0
             self.confidence = packet.get("confidence") or 0

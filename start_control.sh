@@ -9,5 +9,5 @@ mkdir -p log
 source .venv/bin/activate
 # Now run the lora relay server and the control script
 # Relay server need sudo to switch serial shell on/off
-sudo -E ./relayserver.py &> log/relayserver.log &
-./autohoming.py &> log/autohoming.log &
+sudo -E python3 relayserver.py &> log/relayserver.log &
+python3 autohoming.py &> log/autohoming.log &
