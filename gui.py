@@ -99,7 +99,7 @@ def send_joystick(axes, btns):
         packet["ax"] = [round(num, 3) for num in axes[0:3]]      # only need 3 axes, with 3 decimal places
         packet["bt"] = btns[0:2]      # only need 2 buttons
         message = json.dumps(packet) + '\n'
-        # log.debug("Sending: %s", message)
+        log.debug("Sending: %s", message)
         ser.write(message.encode())
 
     except TypeError as msg:

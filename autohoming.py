@@ -28,6 +28,7 @@ VISION_IP = ''
 SETPOINT_TOLERANCE = 10             # angle in degrees, within which the ship heading can be considered "good enough" for proceeding toward the beacon
 SETPOINT_REACHED_WAIT_PERIOD = 3    # time in seconds before yaw angle is considered stable and ship is ready to move toward the beacon
 FORWARD_SPEED = 200                 # speed (max 1000) the ship move forward
+YAW_SPEED = 100                     # speed the ship yaw to turn toward the goal
 
 """ Helper classes """
 class Timer:
@@ -106,6 +107,7 @@ class Vision:
                 self.distance = packet.get("distance") or None
 
         except socket.timeout:
+            self.reset
             log.debug("Socket timed out waiting for Vision msg")
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
@@ -118,7 +120,7 @@ class RadioCompass:
         self.power = 0
         self.confidence = 0
         self.confident = False
-        self.min_power = 10          # minimum strength to be considered valid
+        self.min_power = 5           # minimum strength to be considered valid
         self.min_confidence = 5      # minimum confidence to be considered valid
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
@@ -140,7 +142,7 @@ class RadioCompass:
             self.confidence = packet.get("confidence") or 0
             log.debug("Min Power {}, Min Confidence {}".format(self.min_power, self.min_confidence))
             self.confident = self.power >= self.min_power and self.confidence >= self.min_confidence
-            self.bearing = packet.get("bearing") or None
+            self.bearing = packet.get("bearing") - 45 or None
             if self.bearing and self.bearing > 180:
                 self.bearing = -(360 - self.bearing)
 
@@ -213,6 +215,8 @@ class Effort:
     def __init__(self):
         self.pitch = 0
         self.yaw = 0
+        self.deadzone_low = -100
+        self.deadzone_high = 100
 
 """" Initialize helper objects """
 pixhawk = Pixhawk(DEVICE, BAUD)
@@ -222,7 +226,7 @@ vision = Vision()
 telem = Telemetry()
 cmdproc = CMDProcessor()
 effort = Effort()
-yaw_pid = PID(Kp=0.3, Ki=0, Kd=1, setpoint=0, sample_time=0.5, output_limits=(-1,1))
+yaw_pid = PID(Kp=0.3, Ki=0.0, Kd=0.5, setpoint=0, sample_time=0.5, output_limits=(-0.2,0.2))
 
 """ Worker tasks """
 def joystick_thread():
@@ -276,7 +280,10 @@ class StatusLED():
             self._mode = 3
             self.led.blink(on_time=0.01, off_time=1)
     
-
+    def flash_inverse(self):
+        if self._mode != 4:
+            self._mode = 4
+            self.led.blink(on_time=1, off_time=0.01)
 
 """ Main loop """
 def main():
@@ -301,24 +308,42 @@ def main():
         if pixhawk.armed:
             js_active = joy.axes[2] > 0         # hold down LT button to use joystick
             if js_active:
-                effort.yaw = int(joy.axes[0]*1000)    # left stick left-right for yaw
-                effort.pitch = int(joy.axes[1]*1000)  # left stick up-down for pich
+                effort.yaw = int(joy.axes[0]*1000)    # left stick left-right for turn left-right
+                effort.pitch = int(joy.axes[1]*1000)  # left stick up-down for forward-backward
 
                 led.blink_fast()
                 log.info("Using joystick control")
             
             elif compass.bearing and compass.confident:
-                effort.yaw = int(yaw_pid(compass.bearing/180) * 1000)      # Calculate PID based on scaled feedback
+                # effort.yaw = -int(yaw_pid(compass.bearing/180) * 1000)      # Calculate PID based on scaled feedback
+                # if effort.yaw < -50 and effort.yaw > effort.deadzone_low:
+                #     effort.yaw = effort.deadzone_low
+                # elif effort.yaw > 50 and effort.yaw < effort.deadzone_high:
+                #     effort.yaw = effort.deadzone_high
 
                 if compass.bearing > -SETPOINT_TOLERANCE and compass.bearing < SETPOINT_TOLERANCE:
-                    if setpoint_timer():                
-                        effort.pitch = FORWARD_SPEED
+                    effort.yaw = int(yaw_pid(compass.bearing/180) * 1000)      # Calculate PID based on scaled feedback
 
+                    if setpoint_timer():              
+                        effort.pitch = -FORWARD_SPEED
+                        led.blink_fast()
+
+                    if vision.distance and vision.distance < 100:
+                        Kp_pitch = 2
+                        effort.pitch = -vision.distance*Kp_pitch
+                    
                 else:
+                    # bang-bang control
+                    if compass.bearing < 0:
+                        effort.yaw = -YAW_SPEED
+                    elif compass.bearing > 0:
+                        effort.yaw = YAW_SPEED
+
+                    led.flash()
                     setpoint_timer.reset()
+                    yaw_pid.reset()
                     effort.pitch = 0
                 
-                led.flash()
                 log.info("Using radio homing control")
                 log.info("PID params: {} {} {}".format(yaw_pid.Kp, yaw_pid.Ki, yaw_pid.Kd))
 
@@ -330,7 +355,8 @@ def main():
                 led.blink_slow()
                 log.info("Waiting for compass bearing")
 
-            pixhawk.send_cmd(effort.pitch, effort.yaw)
+            pixhawk.send_cmd(effort.pitch, effort.yaw)      # negative pitch is going forward, negative yaw is left turn    
+            log.info("Effort pitch: {}, Effort yaw: {}".format(effort.pitch, effort.yaw))
         
         else:
             led.pulse_slow()
