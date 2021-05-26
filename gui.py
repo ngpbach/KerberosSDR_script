@@ -3,6 +3,7 @@
 import serial
 from serial.tools import miniterm
 import time
+import socket
 import signal
 import atexit
 import PySimpleGUI as sg
@@ -27,117 +28,249 @@ Setup LORA UART
 """
 DEVICE = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AB0LNG4V-if00-port0"       # requires platformio UDEV
 BAUD = 115200    # baud of LORA UART
-# DEVICE = "./pttyin"
+lora_unavailable = True
 
-try:
-    ser = serial.Serial(DEVICE, BAUD, timeout=2)
-    time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
-    ser.reset_input_buffer()
-except Exception as msg:
-    log.error("Lora UART module not available, exiting\n")
-    # log.error(msg)
-    raise    
+class Lora:
+    def __init__(self):
+        self.telem_packet = None
+        self.read_mutex = threading.Lock()   # mutex to make sure ack won't be consumed by another thread
+        self.send_mutex = threading.Lock()   # mutex to make sure only one command is being sent when waiting for ack
+        self.js_signal = threading.Event()
+        try:
+            self.ser = serial.Serial(DEVICE, BAUD, timeout=2)
+            time.sleep(1)   # a bug in pyserial requires to wait a little before it can be used (or flush)
+            self.ser.reset_input_buffer()
+            lora_unavailable = False
+        except Exception as msg:
+            log.warning("Lora UART module not available, LORA option disabled\n")
+            # log.error(msg)
+
+
+    def send_command(self, cmd, params={}, signal=True):
+        try:
+
+            tries = 3
+            packet = {}
+            # Reducing message size to save serial bandwidth
+            # packet["origin"] = WHOAMI
+            # packet["target"] = TARGET
+            packet["type"] = "cmd"
+            packet["cmd"] = cmd
+            packet.update(params)
+            message = json.dumps(packet, separators=(',', ':')) + '\n'
+            # log.debug("Sending: %s", message)
+
+            self.read_mutex.acquire()
+            self.send_mutex.acquire()
+            self.ser.reset_input_buffer()
+
+            if signal:
+                reply = None
+                for i in range (tries):
+                    if reply == b'\n':
+                        break
+                    else:
+                        self.ser.write(b'\n')        # empty message to signal real messages coming next
+                        reply = self.get_feedback(label="Handshake")
+
+            self.ser.write(message.encode())
+            packet = self.get_feedback("ack", label="Ack")
+
+            self.read_mutex.release()
+            self.send_mutex.release()
+
+            if packet and packet.get("cmd") == cmd:
+                log.info("Command was acknowleged properly.")
+                return True
+            else:
+                log.warning("Command was not acknowleged properly.")
+                return False
+
+        except TypeError as msg:
+            log.error(msg)
+        
+    def get_feedback(self, type="raw", label="Serial"):
+        try:
+            message = self.ser.readline()
+            if message:
+                log.debug(message)
+                if type == "raw":
+                    return message
+                else:
+                    packet = json.loads(message.decode())
+                    if packet.get("type") == type:
+                        return packet
+            else:
+                log.debug("%s read timed out.", label)
+
+        except UnicodeDecodeError:
+            log.error("Gargabe characters received: %s", message)
+        except json.JSONDecodeError:
+            # log.debug("Packet received corrupted")
+            pass
+        except Exception as msg:
+            log.debug(msg)
+
+
+    def send_joystick(self, axes, btns):
+        try:
+            packet = {}
+            # Reducing message size low serial bandwidth
+            # packet["origin"] = WHOAMI
+            # packet["target"] = TARGET
+            packet["type"] = "js"
+            packet["ax"] = [round(num, 3) for num in axes[0:3]]      # only need 3 axes, with 3 decimal places
+            packet["bt"] = btns[0:2]      # only need 2 buttons
+            message = json.dumps(packet) + '\n'
+            log.debug("Sending: %s", message)
+            self.ser.write(message.encode())
+
+        except TypeError as msg:
+            log.error(msg)
+
+    
+    def get_feedback_thread(self):
+        while(1):
+            self.read_mutex.acquire()
+            self.telem_packet = self.get_feedback("telem", label="Telem")
+            self.read_mutex.release()
+
+            time.sleep(1)
+
+    def joystick_thread(self):
+        if js_unavailable:
+            return
+
+        log.info("Hold LT and use left joystick to control.")
+        
+        while True:
+            self.js_signal.wait()
+            joy.joystick_update()
+            self.send_mutex.acquire()
+            self.send_joystick(joy.axes, joy.btns)
+            self.send_mutex.release()
+            time.sleep(0.2)
+
+    def close(self):
+        self.read_mutex.acquire()    # lock read threads
+        self.send_mutex.acquire()    # lock write threads
+        # ser.write(b"\n")
+        self.ser.close()
+
+lora = Lora()
+
+""" 
+Setup UDP
+"""
+IP_BROADCAST = "255.255.255.255"
+IP_ANY = "0.0.0.0"
+PORT_GUI = 5005
+PORT_RELAY = 5000
+
+class UDP:
+    def __init__(self):
+        self.telem_packet = None
+        self.js_signal = threading.Event()
+        self.read_mutex = threading.Lock()   # mutex to make sure ack won't be consumed by another thread
+        self.send_mutex = threading.Lock()   # mutex to make sure only one command is being sent when waiting for ack
+
+        try:
+            self.sock = socket.socket(socket.AF_INET,   # Internet
+                                    socket.SOCK_DGRAM)  # UDP
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            self.sock.bind((IP_ANY, PORT_GUI))
+            self.sock.settimeout(1)
+
+        except Exception as msg:
+            log.error(msg)
+
+    def send_command(self, cmd, params={}, signal=True):
+        try:
+            tries = 3
+            packet = {}
+            packet["type"] = "cmd"
+            packet["cmd"] = cmd
+            packet.update(params)
+            message = json.dumps(packet, separators=(',', ':')) + '\n'
+            # log.debug("Sending: %s", message)
+
+            self.send_mutex.acquire()
+            self.read_mutex.acquire()
+
+            if signal:
+                reply = None
+                for i in range (tries):
+                    if reply == b'\n':
+                        break
+                    else:
+                        self.sock.sendto(b'\n', (IP_BROADCAST, PORT_RELAY))        # empty message to signal real messages coming next
+                        reply = self.get_feedback(label="Handshake")
+
+            self.sock.sendto(message.encode(), (IP_BROADCAST, PORT_RELAY))
+            packet = self.get_feedback("ack", label="Ack")
+
+            self.send_mutex.release()
+            self.read_mutex.release()
+
+            if packet and packet.get("cmd") == cmd:
+                log.info("Command was acknowleged properly.")
+                return True
+            else:
+                log.warning("Command was not acknowleged properly.")
+                return False
+
+        except TypeError as msg:
+            log.error(msg)
+            
+     
+    def get_feedback(self, type="raw", label="UDP"):
+        try:
+            message, addr = self.sock.recvfrom(1024)
+            if message:
+                log.debug(message)
+                if type == "raw":
+                    return message
+                else:
+                    packet = json.loads(message.decode())
+                    if packet.get("type") == type:
+                        return packet
+            else:
+                log.debug("%s read timed out.", label)
+
+        except socket.timeout:
+            log.debug("%s read timed out.", label)
+        except UnicodeDecodeError:
+            log.error("Gargabe characters received: %s", message)
+        except json.JSONDecodeError:
+            # log.debug("Packet received corrupted")
+            pass
+        except Exception as msg:
+            log.debug(msg)
+
+    def get_feedback_thread(self):
+        while(1):
+            self.read_mutex.acquire()
+            self.telem_packet = self.get_feedback("telem", label="Telem")
+            self.read_mutex.release()
+            time.sleep(0.1)
+
+    def joystick_thread(self):
+        if js_unavailable:
+            return
+
+        log.info("Hold LT and use left joystick to control.")
+        
+        while True:
+            self.js_signal.wait()
+            joy.joystick_update()
+            self.send_joystick(joy.axes, joy.btns)
+            time.sleep(0.1)
+
+udp = UDP()
 
 """
 Helper functions
 """
-WHOAMI = "gcs"
-TARGET = "pi"
-
-read_mutex = threading.Lock()   # mutex to make sure ack won't be consumed by another thread
-send_mutex = threading.Lock()   # mutex to make sure only one command is being sent when waiting for ack
-def send_command(cmd, params={}, signal=True):
-    try:
-
-        tries = 3
-        packet = {}
-        # Reducing message size to save serial bandwidth
-        # packet["origin"] = WHOAMI
-        # packet["target"] = TARGET
-        packet["type"] = "cmd"
-        packet["cmd"] = cmd
-        packet.update(params)
-        message = json.dumps(packet, separators=(',', ':')) + '\n'
-        # log.debug("Sending: %s", message)
-
-        read_mutex.acquire()
-        send_mutex.acquire()
-        ser.reset_input_buffer()
-
-        if signal:
-            reply = None
-            for i in range (tries):
-                if reply == b'\n':
-                    break
-                else:
-                    ser.write(b'\n')        # empty message to signal real messages coming next
-                    reply = get_feedback(label="Handshake")
-
-        ser.write(message.encode())
-        packet = get_feedback("ack", label="Ack")
-
-        read_mutex.release()
-        send_mutex.release()
-
-        if packet and packet.get("cmd") == cmd:
-            log.info("Command was acknowleged properly.")
-            return True
-        else:
-            log.warning("Command was not acknowleged properly.")
-            return False
-
-    except TypeError as msg:
-        log.error(msg)
-
-def send_joystick(axes, btns):
-    try:
-        packet = {}
-        # Reducing message size low serial bandwidth
-        # packet["origin"] = WHOAMI
-        # packet["target"] = TARGET
-        packet["type"] = "js"
-        packet["ax"] = [round(num, 3) for num in axes[0:3]]      # only need 3 axes, with 3 decimal places
-        packet["bt"] = btns[0:2]      # only need 2 buttons
-        message = json.dumps(packet) + '\n'
-        log.debug("Sending: %s", message)
-        ser.write(message.encode())
-
-    except TypeError as msg:
-        log.error(msg)
-
-# buffer = ''
-# def read_serial():
-    # global buffer
-    # if ser.in_waiting > 0:
-    #     message = ser.readline()
-    #     if not message or message[-1] != b'\n':
-    #         buffer += message
-    #         return
-    #     else:
-    #         message = buffer + message
-    #         buffer = ''
-    #         return message
-
-def get_feedback(type="raw", label="Serial"):
-    try:
-        message = ser.readline()
-        if message:
-            log.debug(message)
-            if type == "raw":
-                return message
-            else:
-                packet = json.loads(message.decode())
-                if packet.get("type") == type:
-                    return packet
-        else:
-            log.debug("%s read timed out.", label)
-
-    except UnicodeDecodeError:
-        log.error("Gargabe characters received: %s", message)
-    except json.JSONDecodeError:
-        # log.debug("Packet received corrupted")
-        pass
-
 def update_gui(window, packet):
     try:
         window["heartbeat"].update(packet.get("heartbeat"))
@@ -151,39 +284,6 @@ def update_gui(window, packet):
     except TypeError as msg:
         log.debug(msg)
     
-
-"""
-Threads function
-"""
-js_event = threading.Event()
-def joystick_thread():
-    if js_unavailable:
-        return
-
-    log.info("Hold LT and use left joystick to control.")
-    
-    while True:
-        js_event.wait()
-        joy.joystick_update()
-        send_mutex.acquire()
-        send_joystick(joy.axes, joy.btns)
-        send_mutex.release()
-        time.sleep(0.2)
-
-
-feedback_packet = None
-def get_feedback_thread():
-    global feedback_packet
-    while(1):
-        read_mutex.acquire()
-        packet = get_feedback("telem", label="Telem")
-        read_mutex.release()
-        if packet:
-            feedback_packet = packet
-            # log.info(packet)
-            pass
-
-        time.sleep(1)
 
 """ 
 Setup main GUI window 
@@ -220,10 +320,17 @@ layout = [
           ]
 
 window = sg.Window(title="Ground Control Station", layout=layout, default_element_size=(10,1), auto_size_buttons=True, auto_size_text=True, finalize=True)
-sg.popup("Each button attempts to send a command to WaterPi through LORA uart, but might fail due to packet collision.\n"
+
+event, input = sg.Window("Comm link", keep_on_top=True, layout=[[sg.Button("WIFI"), sg.Button("LORA", disabled=lora_unavailable)]]).read(close=True)
+
+if event == "WIFI":
+    comm = udp
+elif event == "LORA":
+    comm = lora
+    sg.popup("Each button attempts to send a command to WaterPi through LORA uart, but might fail due to packet collision.\n"
           "Acked mean successful.\nNot acked mean unknown if successful or not.\n"
           "Check the response message to confirm and try again if it really failed.", keep_on_top=True, title="Attention")
-
+    
 """ 
 Setup logger 
 """
@@ -244,7 +351,7 @@ Handle exit events cleanly
 """
 def terminate():
     window.close()
-    ser.close()
+    lora.ser.close()
     exit()
 
 atexit.register(terminate)
@@ -260,15 +367,15 @@ signal.signal(signal.SIGTSTP, handler) # ctlr + z
 Main loop
 """
 if __name__ == "__main__":
-    joystick_task = threading.Thread(target=joystick_thread, daemon=True)
-    get_feedback_task = threading.Thread(target=get_feedback_thread, daemon=True)
+    joystick_task = threading.Thread(target=comm.joystick_thread, daemon=True)
+    get_feedback_task = threading.Thread(target=comm.get_feedback_thread, daemon=True)
     joystick_task.start()
     get_feedback_task.start()
     
     ack = False
     while True:
-        if feedback_packet:
-            update_gui(window, feedback_packet)
+        if comm.telem_packet:
+            update_gui(window, comm.telem_packet)
             
         # window.Refresh()
         event, input = window.read(timeout=1000)
@@ -279,7 +386,7 @@ if __name__ == "__main__":
             break
         
         elif event == "Calibrate":
-            ack = send_command("sync", signal=True)
+            ack = comm.send_command("sync", signal=True)
             # if ack:
             #     log.info("Kerberos Sync procedure started")
             #     sg.popup_timed("Kerberos Sync procedure started", keep_on_top=True)
@@ -289,7 +396,7 @@ if __name__ == "__main__":
         elif event == "SetGains":
             try:
                 params = {"Kp":float(input.get("Kp") or 0), "Ki":float(input.get("Ki") or 0), "Kd":float(input.get("Kd") or 0)}
-                ack = send_command("tune", params, signal=True)
+                ack = comm.send_command("tune", params, signal=True)
                 # log.debug("PID params sent: %s", params)
             except Exception as msg:
                 log.debug(msg)
@@ -297,50 +404,47 @@ if __name__ == "__main__":
         elif event == "SetThresholds":
             try:
                 params = {"power":int(input.get("minpow") or 0), "conf":int(input.get("minconf") or 0)}
-                ack = send_command("threshold", params, signal=True)
+                ack = comm.send_command("threshold", params, signal=True)
             except Exception as msg:
                 log.debug(msg)
 
         elif event == "ARM":
             params = {"arm":True}
-            ack = send_command("arm", params, signal=True)
+            ack = comm.send_command("arm", params, signal=True)
             # send_joystick([0,0,1], [1,0])
 
         elif event == "DISARM":
             params = {"arm":False}
-            ack = send_command("arm", params, signal=True)
+            ack = comm.send_command("arm", params, signal=True)
             # send_joystick([0,0,1], [0,1])
 
         elif event == "Restart":
-            ack = send_command("restart", signal=True)
+            ack = comm.send_command("restart", signal=True)
             # log.info("Sent signal to restart control software on Pi side")
 
         elif event == "StartPiSerialShell":
             """ For turning of Pi"s relay server and turn on serial terminal mode """
-            ack = send_command("exit", signal=True)
+            ack = comm.send_command("exit", signal=True)
             if ack:
                 window["log"].__del__() # work around pysimplegui Output bug not returning stdio
                 window.close()
-                read_mutex.acquire()    # lock read threads
-                send_mutex.acquire()    # lock write threads
-                # ser.write(b"\n")
-                ser.close()
+                comm.close()
                 miniterm.main(DEVICE,BAUD)
                 break
 
         elif event == "RebootPi":
             # Pi unable to reboot properly. Problem with Pi hang if rebooting with Kerberos backfeed power into USB port
-            ack = send_command("reboot")
+            ack = comm.send_command("reboot")
           
         elif input["JS"]:
-            if not js_event.is_set():
+            if not comm.js_signal.is_set():
                 log.info("Using Joystick. Feedback disabled")
-                js_event.set()
+                comm.js_signal.set()
             
         elif not input["JS"]:
-            if js_event.is_set():
+            if comm.js_signal.is_set():
                 log.info("Stop using Joystick")
-                js_event.clear()
+                comm.js_signal.clear()
     
         if event != "__TIMEOUT__":
             if ack:
