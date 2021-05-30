@@ -226,7 +226,7 @@ vision = Vision()
 telem = Telemetry()
 cmdproc = CMDProcessor()
 effort = Effort()
-yaw_pid = PID(Kp=0.3, Ki=0.0, Kd=0.5, setpoint=0, sample_time=0.5, output_limits=(-0.2,0.2))
+yaw_pid = PID(Kp=0.5, Ki=0.05, Kd=0.5, setpoint=0, sample_time=0.5, output_limits=(-0.2,0.2))
 
 """ Worker tasks """
 def joystick_thread():
@@ -315,14 +315,14 @@ def main():
                 log.info("Using joystick control")
             
             elif compass.bearing and compass.confident:
-                # effort.yaw = -int(yaw_pid(compass.bearing/180) * 1000)      # Calculate PID based on scaled feedback
+                effort.yaw = int(yaw_pid(compass.bearing/180) * 1000)      # Calculate PID based on scaled feedback
                 # if effort.yaw < -50 and effort.yaw > effort.deadzone_low:
                 #     effort.yaw = effort.deadzone_low
                 # elif effort.yaw > 50 and effort.yaw < effort.deadzone_high:
                 #     effort.yaw = effort.deadzone_high
 
                 if compass.bearing > -SETPOINT_TOLERANCE and compass.bearing < SETPOINT_TOLERANCE:
-                    effort.yaw = int(yaw_pid(compass.bearing/180) * 1000)      # Calculate PID based on scaled feedback
+                    # effort.yaw = int(yaw_pid(compass.bearing/180) * 1000)      # Calculate PID based on scaled feedback
 
                     if setpoint_timer():              
                         effort.pitch = -FORWARD_SPEED
@@ -333,7 +333,6 @@ def main():
                         effort.pitch = -vision.distance*Kp_pitch
                     
                 else:
-                    # bang-bang control
                     if compass.bearing < 0:
                         effort.yaw = -YAW_SPEED
                     elif compass.bearing > 0:

@@ -3,7 +3,7 @@
 # Kill any previous instance
 sudo pkill -f -9 start_kerberos_doa.py
 sudo pkill -f -9 radio_compass.py
-sudo pkill -f -9 chromium_browse
+sudo pkill -f -9 chromium-browser
 
 # copy pre-configured settings to kerberossdr foler (save some steps in configuration in python)
 cp $HOME/Desktop/kerberos_scripts/settings.json.immutable $HOME/Desktop/kerberossdr/settings.json

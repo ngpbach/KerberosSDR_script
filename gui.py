@@ -26,12 +26,13 @@ except Exception as msg:
 """ 
 Setup LORA UART 
 """
+lora_unavailable = True
 DEVICE = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AB0LNG4V-if00-port0"       # requires platformio UDEV
 BAUD = 115200    # baud of LORA UART
-lora_unavailable = True
 
 class Lora:
     def __init__(self):
+        global lora_unavailable
         self.telem_packet = None
         self.read_mutex = threading.Lock()   # mutex to make sure ack won't be consumed by another thread
         self.send_mutex = threading.Lock()   # mutex to make sure only one command is being sent when waiting for ack
@@ -162,7 +163,7 @@ lora = Lora()
 """ 
 Setup UDP
 """
-IP_BROADCAST = "255.255.255.255"
+IP_BROADCAST = "192.168.43.255"
 IP_ANY = "0.0.0.0"
 PORT_GUI = 5005
 PORT_RELAY = 5000
@@ -196,23 +197,27 @@ class UDP:
 
             self.send_mutex.acquire()
             self.read_mutex.acquire()
-
+            # old_timeout = self.sock.gettimeout()
+            # self.sock.settimeout(1)
+         
             if signal:
                 reply = None
-                for i in range (tries):
+                self.sock.sendto(b'\n', (IP_BROADCAST, PORT_RELAY))        # empty message to signal real messages coming next
+                for i in range(tries):
                     if reply == b'\n':
                         break
                     else:
-                        self.sock.sendto(b'\n', (IP_BROADCAST, PORT_RELAY))        # empty message to signal real messages coming next
-                        reply = self.get_feedback(label="Handshake")
+                       reply = self.get_feedback(label="Handshake")
+            
+            self.sock.sendto(message.encode(), (IP_BROADCAST, PORT_RELAY))            
+            reply = self.get_feedback("ack", label="Ack")
+                
+            # self.sock.settimeout(old_timeout)
+            # self.send_mutex.release()
+            # self.read_mutex.release()
+            
 
-            self.sock.sendto(message.encode(), (IP_BROADCAST, PORT_RELAY))
-            packet = self.get_feedback("ack", label="Ack")
-
-            self.send_mutex.release()
-            self.read_mutex.release()
-
-            if packet and packet.get("cmd") == cmd:
+            if reply and reply.get("cmd") == cmd:
                 log.info("Command was acknowleged properly.")
                 return True
             else:
@@ -221,6 +226,10 @@ class UDP:
 
         except TypeError as msg:
             log.error(msg)
+        finally:
+            # self.sock.settimeout(old_timeout)
+            self.send_mutex.release()
+            self.read_mutex.release()
             
      
     def get_feedback(self, type="raw", label="UDP"):
@@ -288,6 +297,7 @@ def update_gui(window, packet):
 """ 
 Setup main GUI window 
 """
+demo_mode = False
 sg.ChangeLookAndFeel("Black")
 
 layout = [
@@ -295,15 +305,15 @@ layout = [
                                                                          "Make sure that either all antennas (including cables) are disconnected,\n"
                                                                          "or all nearby beacons transmitting around 121.65Mhz are off before calibrating.")]])],
           [sg.Button("ARM"), sg.Button("DISARM")],
-          [sg.Checkbox("Joystick", key="JS", default=False, disabled=js_unavailable)],
-          [sg.Button("Restart"), sg.Text("Restart button will attemp to restart the control software on Pi")],
-          [sg.Button("RebootPi", disabled=True), sg.Text("Not implemented. WaterPi has trouble resetting with Kerberos connected")],
-          [sg.Button("StartPiSerialShell", disabled=False), sg.Text("Turn off WaterPi relay server and turn on WaterPi Serial Shell for troubleshooting")],
+          [sg.Checkbox("Joystick", key="JS", default=demo_mode, disabled=js_unavailable)],
+          [sg.Button("Restart"), sg.Text("Attemp to restart the control software on Pi")],
+          [sg.Button("RebootPi"), sg.Text("Attempt to reboot operating system on WaterPi")],
+          [sg.Button("StartPiSerialShell", disabled=demo_mode), sg.Text("Turn off WaterPi relay server and turn on WaterPi Serial Shell for troubleshooting")],
           [sg.Frame(
             "Tuning",
             [[
-            sg.Text("Kp"), sg.Input(size=(6,1), key="Kp"), sg.Text("Ki"), sg.Input(size=(6,1), key="Ki"), sg.Text("Kd"), sg.Input(size=(6,1), key="Kd"), sg.Button("SetGains", disabled=False),
-            sg.Text("Min Power"), sg.Input(size=(6,1), key="minpow"), sg.Text("Min Confidence"), sg.Input(size=(6,1), key="minconf"), sg.Button("SetThresholds", disabled=False)
+            sg.Text("Kp"), sg.Input(size=(6,1), key="Kp"), sg.Text("Ki"), sg.Input(size=(6,1), key="Ki"), sg.Text("Kd"), sg.Input(size=(6,1), key="Kd"), sg.Button("SetGains", disabled=demo_mode),
+            sg.Text("Min Power"), sg.Input(size=(6,1), key="minpow"), sg.Text("Min Confidence"), sg.Input(size=(6,1), key="minconf"), sg.Button("SetThresholds", disabled=demo_mode)
             ]]
             )
           ],
@@ -434,7 +444,7 @@ if __name__ == "__main__":
 
         elif event == "RebootPi":
             # Pi unable to reboot properly. Problem with Pi hang if rebooting with Kerberos backfeed power into USB port
-            ack = comm.send_command("reboot")
+            ack = comm.send_command("reboot", signal=True)
           
         elif input["JS"]:
             if not comm.js_signal.is_set():
