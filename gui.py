@@ -123,7 +123,7 @@ class Lora:
             packet["ax"] = [round(num, 3) for num in axes[0:3]]      # only need 3 axes, with 3 decimal places
             packet["bt"] = btns[0:2]      # only need 2 buttons
             message = json.dumps(packet) + '\n'
-            log.debug("Sending: %s", message)
+            # log.debug("Sending: %s", message)
             self.ser.write(message.encode())
 
         except TypeError as msg:
@@ -230,7 +230,22 @@ class UDP:
             # self.sock.settimeout(old_timeout)
             self.send_mutex.release()
             self.read_mutex.release()
-            
+         
+    def send_joystick(self, axes, btns):
+        try:
+            packet = {}
+            # Reducing message size low serial bandwidth
+            # packet["origin"] = WHOAMI
+            # packet["target"] = TARGET
+            packet["type"] = "js"
+            packet["ax"] = [round(num, 3) for num in axes[0:3]]      # only need 3 axes, with 3 decimal places
+            packet["bt"] = btns[0:2]      # only need 2 buttons
+            message = json.dumps(packet) + '\n'
+            log.debug("Sending: %s", message)
+            self.sock.sendto(message.encode(), (IP_BROADCAST, PORT_RELAY))  
+
+        except TypeError as msg:
+            log.error(msg)   
      
     def get_feedback(self, type="raw", label="UDP"):
         try:
@@ -331,15 +346,16 @@ layout = [
 
 window = sg.Window(title="Ground Control Station", layout=layout, default_element_size=(10,1), auto_size_buttons=True, auto_size_text=True, finalize=True)
 
-event, input = sg.Window("Comm link", keep_on_top=True, layout=[[sg.Button("WIFI"), sg.Button("LORA", disabled=lora_unavailable)]]).read(close=True)
+event, input = sg.Window("Comm link", keep_on_top=True, layout=[[sg.Button("WIFI (UDP)"), sg.Button("LORA (UART)", disabled=lora_unavailable)]]).read(close=True)
 
-if event == "WIFI":
-    comm = udp
-elif event == "LORA":
+if event == "LORA":
     comm = lora
     sg.popup("Each button attempts to send a command to WaterPi through LORA uart, but might fail due to packet collision.\n"
           "Acked mean successful.\nNot acked mean unknown if successful or not.\n"
           "Check the response message to confirm and try again if it really failed.", keep_on_top=True, title="Attention")
+else:
+    comm = udp
+
     
 """ 
 Setup logger 
