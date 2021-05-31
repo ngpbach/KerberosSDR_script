@@ -185,9 +185,8 @@ class UDP:
         except Exception as msg:
             log.error(msg)
 
-    def send_command(self, cmd, params={}, signal=True):
+    def send_command(self, cmd, params={}, signal=False, tries=2):
         try:
-            tries = 3
             packet = {}
             packet["type"] = "cmd"
             packet["cmd"] = cmd
@@ -201,16 +200,15 @@ class UDP:
             # self.sock.settimeout(1)
          
             if signal:
-                reply = None
-                self.sock.sendto(b'\n', (IP_BROADCAST, PORT_RELAY))        # empty message to signal real messages coming next
                 for i in range(tries):
+                    self.sock.sendto(b'\n', (IP_BROADCAST, PORT_RELAY))        # empty message to signal real messages coming next
+                    reply = self.get_feedback(label="Handshake", tries=2)
                     if reply == b'\n':
                         break
-                    else:
-                       reply = self.get_feedback(label="Handshake")
+                       
             
             self.sock.sendto(message.encode(), (IP_BROADCAST, PORT_RELAY))            
-            reply = self.get_feedback("ack", label="Ack")
+            reply = self.get_feedback("ack", label="Ack", tries=2)
                 
             # self.sock.settimeout(old_timeout)
             # self.send_mutex.release()
@@ -241,35 +239,37 @@ class UDP:
             packet["ax"] = [round(num, 3) for num in axes[0:3]]      # only need 3 axes, with 3 decimal places
             packet["bt"] = btns[0:2]      # only need 2 buttons
             message = json.dumps(packet) + '\n'
-            log.debug("Sending: %s", message)
+            # log.debug("Sending: %s", message)
             self.sock.sendto(message.encode(), (IP_BROADCAST, PORT_RELAY))  
 
         except TypeError as msg:
             log.error(msg)   
      
-    def get_feedback(self, type="raw", label="UDP"):
-        try:
-            message, addr = self.sock.recvfrom(1024)
-            if message:
-                log.debug(message)
-                if type == "raw":
-                    return message
-                else:
-                    packet = json.loads(message.decode())
-                    if packet.get("type") == type:
-                        return packet
-            else:
-                log.debug("%s read timed out.", label)
+    def get_feedback(self, type="raw", label="UDP", tries=1):
+        for i in range(tries):
+            try:
+                message, addr = self.sock.recvfrom(1024)
+                if message:
+                    log.debug(message)
+                    if type == "raw":
+                        return message
+                    else:
+                        packet = json.loads(message.decode())
+                        if packet.get("type") == type:
+                            return packet
 
-        except socket.timeout:
-            log.debug("%s read timed out.", label)
-        except UnicodeDecodeError:
-            log.error("Gargabe characters received: %s", message)
-        except json.JSONDecodeError:
-            # log.debug("Packet received corrupted")
-            pass
-        except Exception as msg:
-            log.debug(msg)
+                else:
+                    log.debug("%s read timed out.", label)
+
+            except socket.timeout:
+                log.debug("%s read timed out.", label)
+            except UnicodeDecodeError:
+                log.error("Gargabe characters received: %s", message)
+            except json.JSONDecodeError:
+                log.debug("Packet received corrupted")
+                pass
+            except Exception as msg:
+                log.debug(msg)
 
     def get_feedback_thread(self):
         while(1):
@@ -313,12 +313,10 @@ def update_gui(window, packet):
 Setup main GUI window 
 """
 demo_mode = False
-sg.ChangeLookAndFeel("Black")
+sg.ChangeLookAndFeel("Reddit")
 
 layout = [
-          [sg.Button("Calibrate"), sg.Frame("!!!CRITICAL!!!", [[sg.Text("Calibration is required everytime WaterPi software has been reset.\n"
-                                                                         "Make sure that either all antennas (including cables) are disconnected,\n"
-                                                                         "or all nearby beacons transmitting around 121.65Mhz are off before calibrating.")]])],
+          [sg.Button("Calibrate"), sg.Frame("Calibrated", [[sg.Text(size=(10,1), text_color="red", key="calibrated")]])],
           [sg.Button("ARM"), sg.Button("DISARM")],
           [sg.Checkbox("Joystick", key="JS", default=demo_mode, disabled=js_unavailable)],
           [sg.Button("Restart"), sg.Text("Attemp to restart the control software on Pi")],
@@ -377,7 +375,7 @@ Handle exit events cleanly
 """
 def terminate():
     window.close()
-    lora.ser.close()
+    # lora.ser.close()
     exit()
 
 atexit.register(terminate)
@@ -412,17 +410,32 @@ if __name__ == "__main__":
             break
         
         elif event == "Calibrate":
-            ack = comm.send_command("sync", signal=True)
-            # if ack:
-            #     log.info("Kerberos Sync procedure started")
-            #     sg.popup_timed("Kerberos Sync procedure started", keep_on_top=True)
-            # else:
-            #     log.warning("Sync command *might* have lost. Check reply from Pi ('Waiting for Hydra...' means its working)")
+            sg.popup("Calibration is required everytime WaterPi software has been reset.\n"
+                     "Make sure that all antennas are disconnected (but leave the cables connected)\n"
+                     "and all nearby beacons transmitting around 121.65Mhz are off before calibrating.", keep_on_top=True, title="Attention")
+
+            ack = comm.send_command("sync")
+            progress_window = sg.Window("Progress", layout=[[sg.Text("Syncing takes approximately 60 seconds")], 
+                                                            [sg.ProgressBar(100, size=(50, 20), key='progress')]], finalize=True, keep_on_top=True)
+            if ack:
+                comm.read_mutex.acquire()
+                
+                for i in range (100):    # TODO: define a duration
+                    progress_window["progress"].update(i)
+                    packet = comm.get_feedback("progress", label="progress")
+                    if packet and packet.get("progress") == 100:
+                        progress_window["progress"].update(100)
+                        progress_window.close()
+                        break
+
+                comm.read_mutex.release()
+            else:
+                log.warning("Sync command *might* have lost. Check debug logs if sync process started")
 
         elif event == "SetGains":
             try:
                 params = {"Kp":float(input.get("Kp") or 0), "Ki":float(input.get("Ki") or 0), "Kd":float(input.get("Kd") or 0)}
-                ack = comm.send_command("tune", params, signal=True)
+                ack = comm.send_command("tune", params)
                 # log.debug("PID params sent: %s", params)
             except Exception as msg:
                 log.debug(msg)
@@ -430,27 +443,27 @@ if __name__ == "__main__":
         elif event == "SetThresholds":
             try:
                 params = {"power":int(input.get("minpow") or 0), "conf":int(input.get("minconf") or 0)}
-                ack = comm.send_command("threshold", params, signal=True)
+                ack = comm.send_command("threshold", params)
             except Exception as msg:
                 log.debug(msg)
 
         elif event == "ARM":
             params = {"arm":True}
-            ack = comm.send_command("arm", params, signal=True)
+            ack = comm.send_command("arm", params)
             # send_joystick([0,0,1], [1,0])
 
         elif event == "DISARM":
             params = {"arm":False}
-            ack = comm.send_command("arm", params, signal=True)
+            ack = comm.send_command("arm", params)
             # send_joystick([0,0,1], [0,1])
 
         elif event == "Restart":
-            ack = comm.send_command("restart", signal=True)
+            ack = comm.send_command("restart")
             # log.info("Sent signal to restart control software on Pi side")
 
         elif event == "StartPiSerialShell":
             """ For turning of Pi"s relay server and turn on serial terminal mode """
-            ack = comm.send_command("exit", signal=True)
+            ack = comm.send_command("exit")
             if ack:
                 window["log"].__del__() # work around pysimplegui Output bug not returning stdio
                 window.close()
@@ -460,7 +473,7 @@ if __name__ == "__main__":
 
         elif event == "RebootPi":
             # Pi unable to reboot properly. Problem with Pi hang if rebooting with Kerberos backfeed power into USB port
-            ack = comm.send_command("reboot", signal=True)
+            ack = comm.send_command("reboot")
           
         elif input["JS"]:
             if not comm.js_signal.is_set():
@@ -474,7 +487,7 @@ if __name__ == "__main__":
     
         if event != "__TIMEOUT__":
             if ack:
-                sg.popup_quick_message("Acked", keep_on_top=True)
+                sg.popup("Acked", keep_on_top=True)
             else:
-                sg.popup_quick_message("Not Acked", keep_on_top=True)
+                sg.popup("Not Acked", keep_on_top=True)
             
