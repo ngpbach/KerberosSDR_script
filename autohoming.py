@@ -88,7 +88,7 @@ class Vision:
         self.sock = socket.socket(socket.AF_INET, # Internet
                                     socket.SOCK_DGRAM) # UDP
         self.sock.bind((UDP_IP, UDP_PORT))
-        self.sock.settimeout(10)
+        self.sock.settimeout(1)
 
         self.reset()
 
@@ -107,7 +107,7 @@ class Vision:
                 self.distance = packet.get("distance") or None
 
         except socket.timeout:
-            self.reset
+            self.reset()
             log.debug("Socket timed out waiting for Vision msg")
         except json.JSONDecodeError:
             log.error("Corrupt or incorrect format\nReceived msg: %s", message.decode())
