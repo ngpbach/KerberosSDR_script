@@ -266,7 +266,7 @@ class UDP:
             except UnicodeDecodeError:
                 log.error("Gargabe characters received: %s", message)
             except json.JSONDecodeError:
-                log.debug("Packet received corrupted")
+                # log.debug("Packet received corrupted")
                 pass
             except Exception as msg:
                 log.debug(msg)
